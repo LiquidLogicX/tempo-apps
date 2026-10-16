@@ -143,13 +143,15 @@ export const docs = {
 		params: { page: 'Page number.' },
 	},
 	'/dex/': {
-		title: 'Stablecoin DEX pairs',
+		title: 'Stablecoin DEX',
 		description:
-			'Stablecoin DEX orderbooks that swaps route through, with resting liquidity, spread, and 1-day and 30-day volume.',
+			'Stablecoin DEX overview: liquidity and volume totals, the orderbooks swaps route through with liquidity, spread, and 1-day and 30-day volume, and a live feed of recent swaps.',
 		params: {
-			sort: 'Sort by `liquidity`, `spread`, `day` volume, or `month` volume.',
+			tab: 'Show `pairs` or recent `swaps`.',
+			sort: 'Sort pairs by `liquidity`, `spread`, `day` volume, or `month` volume.',
 			dir: 'Sort direction: `asc` or `desc`.',
-			unverified: 'Include pairs with a token outside the verified token list.',
+			unverified:
+				'Include pairs and swaps with a token outside the verified token list.',
 		},
 	},
 	'/dex/$from/$to': {

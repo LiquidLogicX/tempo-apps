@@ -1,17 +1,6 @@
 import { createServerFn } from '@tanstack/react-start'
-import { parseResponse } from 'hono/client'
-import {
-	type Address,
-	BaseError,
-	ContractFunctionExecutionError,
-	type ContractFunctionParameters,
-	formatUnits,
-	type Hex,
-	type MulticallReturnType,
-	toEventSelector,
-} from 'viem'
-import { Addresses, Tick } from 'viem/tempo'
-import { Abis } from '#lib/abis'
+import { type Address, formatUnits, type Hex } from 'viem'
+import { Tick } from 'viem/tempo'
 import {
 	attributeVolume,
 	bookStatus,
@@ -23,9 +12,19 @@ import {
 	sideValue,
 	tickPrice,
 } from '#lib/dex-pools'
+import {
+	addressOf,
+	dex,
+	indexer,
+	list,
+	type Row,
+	readContracts,
+	readQuoteSwitches,
+	readTokens,
+	sqlTime,
+} from '#lib/server/dex-indexer'
 import { withDeadline } from '#lib/server/dex-route'
 import { withImmutableDataCache } from '#lib/server/immutable-data-cache'
-import { api } from '#lib/server/tempo-api'
 import { getBatchedClient, getTempoChain } from '#wagmi.config'
 
 /**
@@ -42,45 +41,8 @@ const BASES_BY_VOLUME = 20
  * the page should wait; it is shown as unreadable instead of failing the page.
  */
 const DEPTH_DEADLINE = 6_000
-/** Calls per multicall; see `readContracts`. */
-const READ_CHUNK = 50
 
-const quoteTokenUpdate = toEventSelector('QuoteTokenUpdate(address,address)')
-const dex = {
-	address: Addresses.stablecoinDex,
-	abi: Abis.stablecoinDex,
-} as const
-const hexAddress = /^0x[0-9a-f]{40}$/
 const hexKey = /^0x[0-9a-f]{64}$/
-
-type Row = Record<string, unknown>
-
-async function indexer(chainId: number, sql: string): Promise<Row[]> {
-	const response = await api.v1.indexer.query.$get({
-		query: { chainId: String(chainId), engine: 'clickhouse', sql },
-	})
-	if (response.status === 422)
-		throw new Error(`Indexer query rejected: ${(await response.json()).error}`)
-	const result = await parseResponse(response)
-	return result.rows.map((values) =>
-		Object.fromEntries(result.columns.map((name, i) => [name, values[i]])),
-	)
-}
-
-/** ClickHouse `DateTime` literal; the indexer rejects ISO-Z strings. */
-function sqlTime(ms: number): string {
-	return new Date(ms).toISOString().replace('T', ' ').slice(0, 19)
-}
-
-/** Indexer values are interpolated into SQL, so only lowercase hex passes. */
-function addressOf(value: unknown): Address | undefined {
-	const text = String(value).toLowerCase()
-	return hexAddress.test(text) ? (text as Address) : undefined
-}
-
-function list(values: Iterable<string>): string {
-	return [...values].map((value) => `'${value}'`).join(', ')
-}
 
 function volumeColumns(windows: { day: string }) {
 	return `toString(sumIf(quote_volume, bucket >= '${windows.day}')) AS day,
@@ -114,12 +76,6 @@ function toVolume(
 	}
 }
 
-type TokenState = {
-	token: DexPoolToken
-	quoteToken: Address
-	nextQuoteToken: Address
-}
-
 export async function getDexPools(): Promise<DexPoolsSnapshot> {
 	const chainId = getTempoChain().id
 	const client = getBatchedClient()
@@ -129,7 +85,7 @@ export async function getDexPools(): Promise<DexPoolsSnapshot> {
 		month: sqlTime(now - 30 * 86_400_000),
 	}
 
-	const [byBalance, byVolume, blockNumber, verified] = await Promise.all([
+	const [byBalance, byVolume, blockNumber] = await Promise.all([
 		indexer(
 			chainId,
 			`SELECT base FROM dex_pair_liquidity WHERE liquidity > 0
@@ -141,9 +97,6 @@ export async function getDexPools(): Promise<DexPoolsSnapshot> {
 			GROUP BY token ORDER BY sum(quote_volume) DESC LIMIT ${BASES_BY_VOLUME}`,
 		),
 		client.getBlockNumber(),
-		import('#lib/server/verified-tokens').then((module) =>
-			module.getVerifiedTokenAddresses(chainId),
-		),
 	])
 	const bases = new Set(
 		[
@@ -154,17 +107,12 @@ export async function getDexPools(): Promise<DexPoolsSnapshot> {
 	if (bases.size === 0)
 		return { blockNumber: String(blockNumber), generatedAt: now, pools: [] }
 
-	const [pairRows, updateRows, volumeRows] = await Promise.all([
+	const [pairRows, updates, volumeRows] = await Promise.all([
 		indexer(
 			chainId,
 			`SELECT key, base, quote FROM dex_pairs WHERE base IN (${list(bases)})`,
 		),
-		indexer(
-			chainId,
-			`SELECT address, topic2, toUnixTimestamp(block_timestamp) AS ts FROM logs
-			WHERE selector = '${quoteTokenUpdate}' AND address IN (${list(bases)})
-			ORDER BY block_num DESC, log_idx DESC`,
-		),
+		readQuoteSwitches(chainId, bases),
 		indexer(
 			chainId,
 			`SELECT token, ${volumeColumns(windows)} FROM dex_ohlc_1m
@@ -180,34 +128,14 @@ export async function getDexPools(): Promise<DexPoolsSnapshot> {
 		if (!hexKey.test(key) || !base || !quote) return []
 		return [{ key: key as Hex, base, quote }]
 	})
-	// Newest first, so each base's first entry is its latest switch.
-	const updates = new Map<Address, { quote: Address; at: number }[]>()
-	for (const row of updateRows) {
-		const base = addressOf(row.address)
-		const quote = addressOf(`0x${String(row.topic2).slice(-40)}`)
-		if (!base || !quote) continue
-		updates.set(base, [
-			...(updates.get(base) ?? []),
-			{ quote, at: Number(row.ts) },
-		])
-	}
 	// Fills before a switch inside the window went to the previous book.
 	const switches = [...updates]
 		.map(([base, list]) => ({ base, at: list[0]?.at ?? 0 }))
 		.filter((entry) => entry.at * 1000 > now - 30 * 86_400_000)
 
 	const tokens = [...new Set(pairs.flatMap((pair) => [pair.base, pair.quote]))]
-	const tokenCalls = tokens.flatMap((address) =>
-		(['symbol', 'decimals', 'quoteToken', 'nextQuoteToken'] as const).map(
-			(functionName) => ({
-				address,
-				abi: Abis.tip20,
-				functionName,
-			}),
-		),
-	)
-	const [tokenResults, books, levelRows, beforeSwitchRows] = await Promise.all([
-		readContracts(tokenCalls, blockNumber),
+	const [metadata, books, levelRows, beforeSwitchRows] = await Promise.all([
+		readTokens(chainId, tokens, blockNumber),
 		readContracts(
 			pairs.map((pair) => ({
 				...dex,
@@ -244,33 +172,6 @@ export async function getDexPools(): Promise<DexPoolsSnapshot> {
 				)
 			: Promise.resolve([]),
 	])
-
-	const metadata = new Map<Address, TokenState>()
-	tokens.forEach((address, index) => {
-		const [symbol, decimals, quoteToken, nextQuoteToken] = tokenResults.slice(
-			index * 4,
-			index * 4 + 4,
-		)
-		if (symbol?.status !== 'success' || decimals?.status !== 'success') return
-		metadata.set(address, {
-			token: {
-				address,
-				symbol: String(symbol.result),
-				decimals: Number(decimals.result),
-				// An empty verified list means the registry was unreachable; flag
-				// nothing rather than hiding every pair as unverified.
-				verified: verified.size === 0 || verified.has(address),
-			},
-			quoteToken:
-				quoteToken?.status === 'success'
-					? (String(quoteToken.result).toLowerCase() as Address)
-					: Addresses.pathUsd,
-			nextQuoteToken:
-				nextQuoteToken?.status === 'success'
-					? (String(nextQuoteToken.result).toLowerCase() as Address)
-					: Addresses.pathUsd,
-		})
-	})
 
 	const usedTicks = new Map<Address, { bids: Set<number>; asks: Set<number> }>()
 	for (const row of levelRows ?? []) {
@@ -353,45 +254,6 @@ export async function getDexPools(): Promise<DexPoolsSnapshot> {
 	return { blockNumber: String(blockNumber), generatedAt: now, pools }
 }
 
-/**
- * Deployless multicall sends every call in one creation payload and viem
- * does not chunk it, so a large read is split before the RPC rejects it.
- * A chunk shares one call's gas, and a tick level with a long order queue
- * can exhaust it; such a chunk is retried as separate calls.
- */
-async function readContracts<
-	const contracts extends readonly ContractFunctionParameters[],
->(
-	contracts: contracts,
-	blockNumber: bigint,
-): Promise<MulticallReturnType<contracts>> {
-	const client = getBatchedClient()
-	const chunks: ContractFunctionParameters[][] = []
-	for (let index = 0; index < contracts.length; index += READ_CHUNK)
-		chunks.push(contracts.slice(index, index + READ_CHUNK))
-	const results = await Promise.all(
-		chunks.map(async (chunk) => {
-			const results = await client.multicall({
-				contracts: chunk,
-				allowFailure: true,
-				deployless: true,
-				blockNumber,
-			})
-			if (!results.every((result) => aggregateFailed(result.error)))
-				return results
-			return Promise.all(
-				chunk.map((contract) =>
-					client.readContract({ ...contract, blockNumber }).then(
-						(result) => ({ status: 'success' as const, result }),
-						(error: Error) => ({ status: 'failure' as const, error }),
-					),
-				),
-			)
-		}),
-	)
-	return results.flat() as MulticallReturnType<contracts>
-}
-
 function orNull<T>(read: Promise<T>, ms: number): Promise<T | null> {
 	let timer: ReturnType<typeof setTimeout> | undefined
 	return Promise.race([
@@ -400,20 +262,6 @@ function orNull<T>(read: Promise<T>, ms: number): Promise<T | null> {
 			timer = setTimeout(() => resolve(null), ms)
 		}),
 	]).finally(() => clearTimeout(timer))
-}
-
-/** The multicall itself failed, rather than one of its calls. */
-function aggregateFailed(error: Error | undefined): boolean {
-	return (
-		error instanceof BaseError &&
-		Boolean(
-			error.walk(
-				(cause) =>
-					cause instanceof ContractFunctionExecutionError &&
-					cause.functionName === 'aggregate3',
-			),
-		)
-	)
 }
 
 function toLiquidity(

@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { createFileRoute, stripSearchParams } from '@tanstack/react-router'
 import { useMemo, useState } from 'react'
 import type * as React from 'react'
+import { DexSwapsGrid, LivePill, useDexSwaps } from '#comps/DexSwaps'
 import { DataGrid } from '#comps/DataGrid'
 import { Sections } from '#comps/Sections'
 import { TokenIcon } from '#comps/TokenIcon'
@@ -40,6 +41,19 @@ function DexPoolsPage(): React.JSX.Element {
 	const query = useQuery(dexPoolsQueryOptions())
 	const isMobile = useMediaQuery('(max-width: 799px)')
 	const [filter, setFilter] = useState('')
+	const [live, setLive] = useState(true)
+	const [paused, setPaused] = useState(false)
+	// Poll only while the feed is on screen.
+	const swapsQuery = useDexSwaps(
+		live && !paused && (isMobile || search.tab === 'swaps'),
+	)
+	const swaps = useMemo(
+		() =>
+			(swapsQuery.data ?? []).filter(
+				(swap) => search.unverified || (swap.from.verified && swap.to.verified),
+			),
+		[swapsQuery.data, search.unverified],
+	)
 
 	const pools = useMemo(
 		() =>
@@ -72,6 +86,14 @@ function DexPoolsPage(): React.JSX.Element {
 		}
 		return totals
 	}, [pools])
+
+	function setVerifiedOnly(verifiedOnly: boolean) {
+		void navigate({
+			search: (previous) => ({ ...previous, unverified: !verifiedOnly }),
+			replace: true,
+			resetScroll: false,
+		})
+	}
 
 	function sortBy(sort: DexPoolSort) {
 		const dir =
@@ -123,68 +145,56 @@ function DexPoolsPage(): React.JSX.Element {
 				<Stat label="30D volume" value={pools && usd(totals.month)} />
 			</section>
 
-			{query.isError && !pools ? (
-				<div
-					role="alert"
-					className="rounded-body border border-card-border bg-card p-[18px] copy-14 text-secondary flex flex-col items-start gap-3"
-				>
-					<p>{query.error.message}</p>
-					<button
-						type="button"
-						className="inline-flex items-center rounded-[7px] border border-card-border px-3 py-2 copy-13 text-secondary hover:text-primary cursor-pointer press-down disabled:opacity-50"
-						disabled={query.isFetching}
-						onClick={() => void query.refetch()}
-					>
-						{query.isFetching ? 'Retrying…' : 'Try again'}
-					</button>
-				</div>
-			) : (
-				<Sections
-					mode={isMobile ? 'stacked' : 'tabs'}
-					sections={[
-						{
-							title: 'Pairs',
-							totalItems: pools ? rows.length : undefined,
-							itemsLabel: 'pairs',
-							autoCollapse: false,
-							contextual: (
-								<div className="flex items-center gap-4">
-									<label className="relative flex items-center">
-										<span className="sr-only">Search pairs</span>
-										<SearchIcon
-											aria-hidden="true"
-											className="absolute left-2 size-3.5 text-tertiary pointer-events-none"
-										/>
-										<input
-											value={filter}
-											onChange={(event) => setFilter(event.target.value)}
-											placeholder="Search"
-											spellCheck={false}
-											autoComplete="off"
-											className="h-7 w-[160px] rounded-[6px] border border-card-border bg-base-plane pl-7 pr-2 text-base sm:label-12 text-primary outline-none placeholder:text-tertiary focus:border-accent"
-										/>
-									</label>
-									<label className="inline-flex items-center gap-2 label-12 text-secondary whitespace-nowrap cursor-pointer select-none">
-										<input
-											type="checkbox"
-											checked={!search.unverified}
-											onChange={(event) =>
-												void navigate({
-													search: (previous) => ({
-														...previous,
-														unverified: !event.target.checked,
-													}),
-													replace: true,
-													resetScroll: false,
-												})
-											}
-											className="accent-(--color-accent) cursor-pointer"
-										/>
-										Verified only
-									</label>
-								</div>
-							),
-							content: (
+			<Sections
+				mode={isMobile ? 'stacked' : 'tabs'}
+				activeSection={search.tab === 'swaps' ? 1 : 0}
+				onSectionChange={(index) =>
+					void navigate({
+						search: (previous) => ({
+							...previous,
+							tab: index === 1 ? 'swaps' : 'pairs',
+						}),
+						replace: true,
+						resetScroll: false,
+					})
+				}
+				sections={[
+					{
+						title: 'Pairs',
+						totalItems: pools ? rows.length : undefined,
+						itemsLabel: 'pairs',
+						autoCollapse: false,
+						contextual: (
+							<div className="flex items-center gap-4">
+								<label className="relative flex items-center">
+									<span className="sr-only">Search pairs</span>
+									<SearchIcon
+										aria-hidden="true"
+										className="absolute left-2 size-3.5 text-tertiary pointer-events-none"
+									/>
+									<input
+										value={filter}
+										onChange={(event) => setFilter(event.target.value)}
+										placeholder="Search"
+										spellCheck={false}
+										autoComplete="off"
+										className="h-7 w-[160px] rounded-[6px] border border-card-border bg-base-plane pl-7 pr-2 text-base sm:label-12 text-primary outline-none placeholder:text-tertiary focus:border-accent"
+									/>
+								</label>
+								<VerifiedToggle
+									checked={!search.unverified}
+									onChange={setVerifiedOnly}
+								/>
+							</div>
+						),
+						content:
+							query.isError && !pools ? (
+								<LoadError
+									message={query.error.message}
+									retrying={query.isFetching}
+									onRetry={() => void query.refetch()}
+								/>
+							) : (
 								<DataGrid
 									columns={{
 										stacked: [
@@ -246,10 +256,85 @@ function DexPoolsPage(): React.JSX.Element {
 									emptyState={filter ? 'No matching pairs' : 'No pairs'}
 								/>
 							),
-						},
-					]}
-				/>
-			)}
+					},
+					{
+						title: 'Swaps',
+						autoCollapse: false,
+						contextual: (
+							<div className="flex items-center gap-4">
+								<LivePill
+									live={live && !paused}
+									onToggle={() => setLive(!live)}
+								/>
+								<VerifiedToggle
+									checked={!search.unverified}
+									onChange={setVerifiedOnly}
+								/>
+							</div>
+						),
+						content:
+							swapsQuery.isError && !swapsQuery.data ? (
+								<LoadError
+									message={swapsQuery.error.message}
+									retrying={swapsQuery.isFetching}
+									onRetry={() => void swapsQuery.refetch()}
+								/>
+							) : (
+								// biome-ignore lint/a11y/noStaticElementInteractions: pause on hover
+								<div
+									onMouseEnter={() => setPaused(true)}
+									onMouseLeave={() => setPaused(false)}
+								>
+									<DexSwapsGrid
+										swaps={swaps}
+										loading={swapsQuery.isPending}
+										live={live && !paused}
+									/>
+								</div>
+							),
+					},
+				]}
+			/>
+		</div>
+	)
+}
+
+function VerifiedToggle(props: {
+	checked: boolean
+	onChange: (checked: boolean) => void
+}): React.JSX.Element {
+	return (
+		<label className="inline-flex items-center gap-2 label-12 text-secondary whitespace-nowrap cursor-pointer select-none">
+			<input
+				type="checkbox"
+				checked={props.checked}
+				onChange={(event) => props.onChange(event.target.checked)}
+				className="accent-(--color-accent) cursor-pointer"
+			/>
+			Verified only
+		</label>
+	)
+}
+
+function LoadError(props: {
+	message: string
+	retrying: boolean
+	onRetry: () => void
+}): React.JSX.Element {
+	return (
+		<div
+			role="alert"
+			className="p-[18px] copy-14 text-secondary flex flex-col items-start gap-3"
+		>
+			<p>{props.message}</p>
+			<button
+				type="button"
+				className="inline-flex items-center rounded-[7px] border border-card-border px-3 py-2 copy-13 text-secondary hover:text-primary cursor-pointer press-down disabled:opacity-50"
+				disabled={props.retrying}
+				onClick={props.onRetry}
+			>
+				{props.retrying ? 'Retrying…' : 'Try again'}
+			</button>
 		</div>
 	)
 }

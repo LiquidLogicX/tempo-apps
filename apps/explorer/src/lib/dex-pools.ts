@@ -140,6 +140,7 @@ export const dexPoolSorts = ['liquidity', 'spread', 'day', 'month'] as const
 export type DexPoolSort = (typeof dexPoolSorts)[number]
 
 export const dexPoolsSearchSchema = z.object({
+	tab: z._default(z.enum(['pairs', 'swaps']), 'pairs'),
 	sort: z._default(z.enum(dexPoolSorts), 'liquidity'),
 	dir: z._default(z.enum(['asc', 'desc']), 'desc'),
 	unverified: z._default(z.boolean(), false),
@@ -148,6 +149,7 @@ export const dexPoolsSearchSchema = z.object({
 export type DexPoolsSearch = z.infer<typeof dexPoolsSearchSchema>
 
 export const defaultDexPoolsSearch: DexPoolsSearch = {
+	tab: 'pairs',
 	sort: 'liquidity',
 	dir: 'desc',
 	unverified: false,

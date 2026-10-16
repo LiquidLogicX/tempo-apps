@@ -196,6 +196,7 @@ describe('Stablecoin DEX pairs', () => {
 
 	it('defaults search params and matches symbols or exact addresses', () => {
 		expect(dexPoolsSearchSchema.parse({})).toEqual({
+			tab: 'pairs',
 			sort: 'liquidity',
 			dir: 'desc',
 			unverified: false,

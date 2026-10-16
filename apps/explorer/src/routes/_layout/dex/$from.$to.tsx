@@ -10,6 +10,7 @@ import type * as React from 'react'
 import { CopyButton } from '#comps/CopyButton'
 import { Sections } from '#comps/Sections'
 import { TokenIcon } from '#comps/TokenIcon'
+import { cx } from '#lib/css'
 import {
 	defaultDexRoute,
 	depthTicks,
@@ -25,11 +26,12 @@ import {
 	dexLegDepthQueryOptions,
 	dexRouteQueryOptions,
 } from '#lib/queries/dex-route'
-import type { DexLeg } from '#lib/server/dex-route'
+import type { DexDepthLevel, DexLeg } from '#lib/server/dex-route'
 import { getTempoChain } from '#wagmi.config'
 import ArrowRightIcon from '~icons/lucide/arrow-right'
 import ArrowLeftRightIcon from '~icons/lucide/arrow-left-right'
 import ChevronLeftIcon from '~icons/lucide/chevron-left'
+import ChevronDownIcon from '~icons/lucide/chevron-down'
 import RefreshCwIcon from '~icons/lucide/refresh-cw'
 
 export const Route = createFileRoute('/_layout/dex/$from/$to')({
@@ -67,6 +69,8 @@ export const Route = createFileRoute('/_layout/dex/$from/$to')({
 
 const number = new Intl.NumberFormat('en-US', { maximumFractionDigits: 6 })
 const rate = new Intl.NumberFormat('en-US', { maximumFractionDigits: 8 })
+const bps = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 })
+const size = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 })
 const mainnetSymbols: Record<string, string> = {
 	'0x20c00000000000000000000014f22ca97301eb73': 'USDT0',
 	'0x20c0000000000000000000000000000000000000': 'pathUSD',
@@ -202,25 +206,27 @@ function DexRoutePage(): React.JSX.Element {
 					from &&
 					to && (
 						<>
-							<ol
-								aria-label="Token path"
-								className="flex flex-wrap items-center gap-x-3 gap-y-4 p-[18px] border-b border-dashed border-card-border"
-							>
-								{snapshot.path.map((token, index) => (
-									<li
-										key={token.address}
-										className="flex items-center gap-3 min-w-0"
-									>
-										{index > 0 && (
-											<ArrowRightIcon
-												aria-hidden="true"
-												className="size-4 text-tertiary shrink-0"
-											/>
-										)}
-										<TokenLink token={token} />
-									</li>
-								))}
-							</ol>
+							{snapshot.path.length > 2 && (
+								<ol
+									aria-label="Token path"
+									className="flex flex-wrap items-center gap-x-2.5 gap-y-3 px-[18px] py-3 border-b border-dashed border-card-border"
+								>
+									{snapshot.path.map((token, index) => (
+										<li
+											key={token.address}
+											className="flex items-center gap-2.5 min-w-0"
+										>
+											{index > 0 && (
+												<ArrowRightIcon
+													aria-hidden="true"
+													className="size-3.5 text-tertiary shrink-0"
+												/>
+											)}
+											<TokenLink token={token} />
+										</li>
+									))}
+								</ol>
+							)}
 							<div className="grid md:grid-cols-2">
 								<AmountInput
 									key={`${search.from}:${search.to}`}
@@ -229,28 +235,34 @@ function DexRoutePage(): React.JSX.Element {
 									inputError={snapshot.inputError}
 								/>
 								<div
-									className="flex flex-col gap-3 p-[18px]"
+									className="flex flex-col gap-4 p-[18px]"
 									aria-live="polite"
 									aria-busy={query.isFetching}
 								>
-									<div className="copy-13 text-secondary">
-										Estimated output · {to.symbol}
+									<div className="copy-13 text-tertiary">You receive</div>
+									<div className="flex items-center justify-between gap-4 min-h-[48px]">
+										{snapshot.quote.amountOut !== null ? (
+											<div
+												className={cx(
+													'text-[32px] sm:text-[40px] leading-none tracking-[-0.02em] font-medium tabular-nums text-primary break-all transition-opacity',
+													query.isFetching && 'opacity-60',
+												)}
+											>
+												{formatAmount(snapshot.quote.amountOut)}
+											</div>
+										) : (
+											<p className="heading-20 text-secondary">
+												{snapshot.inputError
+													? 'Enter a valid amount'
+													: quoteMessage(snapshot.quote)}
+											</p>
+										)}
+										<TokenBadge token={to} />
 									</div>
-									{snapshot.quote.amountOut !== null ? (
-										<div className="text-[32px] sm:text-[40px] leading-tight tracking-[-0.02em] font-medium tabular-nums text-primary break-all">
-											{formatAmount(snapshot.quote.amountOut)}
-										</div>
-									) : (
-										<p className="heading-20 text-primary">
-											{snapshot.inputError
-												? 'Enter a valid amount'
-												: quoteMessage(snapshot.quote)}
-										</p>
-									)}
 									{snapshot.quote.amountOut !== null && (
 										<dl className="flex flex-col gap-2 copy-13">
 											<div className="flex flex-wrap justify-between gap-x-4 gap-y-1">
-												<dt className="text-tertiary">Effective rate</dt>
+												<dt className="text-tertiary">Rate</dt>
 												<dd className="text-secondary tabular-nums">
 													1 {from.symbol} ={' '}
 													{rate.format(
@@ -263,41 +275,37 @@ function DexRoutePage(): React.JSX.Element {
 											<div className="flex flex-wrap justify-between gap-x-4 gap-y-1">
 												<dt
 													className="text-tertiary"
-													title="Compared with the quote for 1 input token at the same block"
+													title={`Compared with the rate for 1 ${from.symbol} at the same block`}
 												>
-													Impact vs. 1 {from.symbol}
+													Price impact
 												</dt>
 												<dd className="text-secondary tabular-nums">
-													{impact === null
-														? 'Unavailable'
-														: `${impact.toFixed(2)} bps`}
+													{impact === null ? '—' : `${bps.format(impact)} bps`}
 												</dd>
 											</div>
 										</dl>
 									)}
 								</div>
 							</div>
-							<div className="flex flex-wrap items-center justify-between gap-3 px-[18px] py-3 border-t border-dashed border-card-border copy-13 text-tertiary">
-								<span>
-									Snapshot at{' '}
-									<Link
-										to="/block/$id"
-										params={{ id: snapshot.blockNumber }}
-										className="text-accent hover:underline"
-									>
-										block {snapshot.blockNumber}
-									</Link>{' '}
-									· {snapshot.legs.length}{' '}
-									{snapshot.legs.length === 1 ? 'leg' : 'legs'}
-								</span>
+							<div className="flex items-center justify-between gap-3 px-[18px] py-2.5 border-t border-dashed border-card-border label-12 text-tertiary">
+								<Link
+									to="/block/$id"
+									params={{ id: snapshot.blockNumber }}
+									className="tabular-nums hover:text-primary"
+								>
+									Block {snapshot.blockNumber}
+								</Link>
 								<button
 									type="button"
 									onClick={() => void query.refetch()}
 									disabled={query.isFetching}
-									className="inline-flex items-center gap-2 text-accent hover:underline cursor-pointer disabled:opacity-50"
+									aria-label="Refresh quote"
+									className="inline-flex items-center gap-1.5 hover:text-primary cursor-pointer disabled:cursor-wait"
 								>
-									<RefreshCwIcon className="size-3" />
-									{query.isFetching ? 'Refreshing…' : 'Refresh'}
+									<RefreshCwIcon
+										className={cx('size-3', query.isFetching && 'animate-spin')}
+									/>
+									Refresh
 								</button>
 							</div>
 							{query.isRefetchError && (
@@ -318,14 +326,15 @@ function DexRoutePage(): React.JSX.Element {
 					mode={isMobile ? 'stacked' : 'tabs'}
 					sections={[
 						{
-							title: 'Route legs',
+							title: snapshot.legs.length === 1 ? 'Order book' : 'Order books',
+							autoCollapse: false,
 							content: (
 								<div className="flex flex-col">
 									{snapshot.legs.map((leg, index) => (
 										<LegRow
 											key={`${leg.from.address}:${leg.to.address}`}
 											blockNumber={snapshot.blockNumber}
-											index={index}
+											index={snapshot.legs.length > 1 ? index : undefined}
 											leg={leg}
 										/>
 									))}
@@ -335,15 +344,21 @@ function DexRoutePage(): React.JSX.Element {
 						{
 							title: 'Details',
 							content: (
-								<dl className="flex flex-col gap-4 p-[18px] copy-13">
+								<dl className="flex flex-col">
 									{snapshot.path.map((token) => (
-										<div key={token.address}>
-											<dt className="text-tertiary mb-1">{token.symbol}</dt>
-											<dd>
+										<div
+											key={token.address}
+											className="flex flex-wrap items-center justify-between gap-x-6 gap-y-1 px-[18px] py-3.5 border-b last:border-b-0 border-dashed border-card-border"
+										>
+											<dt className="inline-flex items-center gap-2 copy-14 font-medium text-primary">
+												<TokenIcon address={token.address} />
+												{token.symbol}
+											</dt>
+											<dd className="min-w-0">
 												<Link
 													to="/address/$address"
 													params={{ address: token.address }}
-													className="font-mono text-accent hover:underline break-all"
+													className="font-mono copy-13 text-accent hover:underline break-all"
 												>
 													{token.address}
 												</Link>
@@ -400,24 +415,28 @@ export function AmountInput(props: AmountInput.Props): React.JSX.Element {
 	const error = validationError || (draft.trim() === amount ? inputError : null)
 
 	return (
-		<div className="flex flex-col gap-3 p-[18px] md:border-r border-b md:border-b-0 border-dashed border-card-border">
-			<label htmlFor={amountId} className="copy-13 text-secondary">
-				Amount in · {token.symbol}
+		<div className="flex flex-col gap-4 p-[18px] md:border-r border-b md:border-b-0 border-dashed border-card-border">
+			<label htmlFor={amountId} className="copy-13 text-tertiary">
+				You pay
 			</label>
-			<input
-				id={amountId}
-				name="amount"
-				inputMode="decimal"
-				autoComplete="off"
-				value={draft}
-				onChange={(event) => {
-					setDraft(event.target.value)
-					setValidationError(null)
-				}}
-				aria-invalid={Boolean(error)}
-				aria-describedby={error ? `${amountId}-error` : undefined}
-				className="w-full min-w-0 rounded-[6px] border border-card-border bg-base-plane px-3 py-2.5 text-xl tabular-nums text-primary outline-none focus:border-accent"
-			/>
+			<div className="flex items-center justify-between gap-4 min-h-[48px]">
+				<input
+					id={amountId}
+					name="amount"
+					inputMode="decimal"
+					autoComplete="off"
+					placeholder="0"
+					value={draft}
+					onChange={(event) => {
+						setDraft(event.target.value)
+						setValidationError(null)
+					}}
+					aria-invalid={Boolean(error)}
+					aria-describedby={error ? `${amountId}-error` : undefined}
+					className="w-full min-w-0 bg-transparent p-0 text-[32px] sm:text-[40px] leading-none tracking-[-0.02em] font-medium tabular-nums text-primary outline-none placeholder:text-tertiary aria-invalid:text-negative"
+				/>
+				<TokenBadge token={token} />
+			</div>
 			{error && (
 				<p
 					id={`${amountId}-error`}
@@ -441,11 +460,12 @@ export declare namespace AmountInput {
 
 function LegRow(props: {
 	blockNumber: string
-	index: number
+	index: number | undefined
 	leg: DexLeg
 }): React.JSX.Element {
 	const { blockNumber, index, leg } = props
 	const [open, setOpen] = useState(false)
+	const depthId = useId()
 	const depth = useQuery({
 		...dexLegDepthQueryOptions({
 			from: leg.from.address,
@@ -459,98 +479,157 @@ function LegRow(props: {
 		leg.bid !== null && leg.ask !== null
 			? ((leg.ask - leg.bid) / leg.ask) * 10_000
 			: null
+	const stats = [
+		{ label: 'Bid', value: leg.bid === null ? '—' : leg.bid.toFixed(4) },
+		{ label: 'Ask', value: leg.ask === null ? '—' : leg.ask.toFixed(4) },
+		{
+			label: 'Spread',
+			value: spread === null ? '—' : `${bps.format(spread)} bps`,
+		},
+	]
 
 	return (
-		<div className="px-[18px] py-4 border-b last:border-b-0 border-dashed border-card-border flex flex-col gap-2">
-			<div className="flex flex-wrap justify-between gap-3">
-				<div className="flex flex-wrap items-center gap-2">
-					<span className="copy-13 text-tertiary">{index + 1}.</span>
+		<div className="flex flex-col border-b last:border-b-0 border-dashed border-card-border">
+			<div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-4 px-[18px] py-4">
+				<div className="flex items-center gap-2.5 min-w-0">
+					{index !== undefined && (
+						<span className="inline-flex size-5 shrink-0 items-center justify-center rounded-full border border-card-border label-12 text-tertiary tabular-nums">
+							{index + 1}
+						</span>
+					)}
 					<TokenLink token={leg.from} />
-					<ArrowRightIcon className="size-3.5 text-tertiary" />
+					<ArrowRightIcon className="size-3.5 text-tertiary shrink-0" />
 					<TokenLink token={leg.to} />
 				</div>
-				<span className="copy-13 text-secondary tabular-nums">
-					{!leg.exists
-						? 'Book not created'
-						: leg.bestRate === null
-							? `No ${leg.isBid ? 'bids' : 'asks'} to fill`
-							: `Best rate: ${rate.format(leg.bestRate)} ${leg.to.symbol} / ${leg.from.symbol}`}
-				</span>
-			</div>
-			{leg.exists && (
-				<div className="copy-13 text-tertiary tabular-nums">
-					Bid {leg.bid === null ? '—' : rate.format(leg.bid)} · Ask{' '}
-					{leg.ask === null ? '—' : rate.format(leg.ask)} {leg.quote.symbol} per{' '}
-					{leg.base.symbol}
-					{spread !== null && ` · Spread ${spread.toFixed(1)} bps`}
-				</div>
-			)}
-			{leg.bestTick !== null && (
-				<details
-					className="copy-13 text-tertiary"
-					onToggle={(event) => setOpen(event.currentTarget.open)}
-				>
-					<summary className="cursor-pointer hover:text-primary">Depth</summary>
-					<div className="pt-3" aria-live="polite">
-						{depth.isPending ? (
-							<p role="status">Loading depth…</p>
-						) : depth.isError ? (
-							<p role="status">
-								Depth is unavailable.{' '}
-								<button
-									type="button"
-									className="text-accent hover:underline cursor-pointer"
-									onClick={() => void depth.refetch()}
-								>
-									Try again
-								</button>
-							</p>
-						) : depth.data.length === 0 ? (
-							<p>
-								No resting liquidity in the {depthTicks} price levels from the
-								best price.
-							</p>
-						) : (
-							<div className="overflow-x-auto">
-								<table className="w-full text-left tabular-nums whitespace-nowrap">
-									<thead>
-										<tr>
-											<th className="py-1.5 pr-4 font-normal">
-												Rate · {leg.to.symbol} / {leg.from.symbol}
-											</th>
-											<th className="py-1.5 pr-4 font-normal text-right">
-												Fills · {leg.from.symbol}
-											</th>
-											<th className="py-1.5 font-normal text-right">
-												Cumulative · {leg.from.symbol}
-											</th>
-										</tr>
-									</thead>
-									<tbody className="text-secondary">
-										{depth.data.map((level) => (
-											<tr
-												key={level.tick}
-												className="border-t border-dashed border-card-border"
-											>
-												<td className="py-1.5 pr-4">
-													{rate.format(level.rate)}
-												</td>
-												<td className="py-1.5 pr-4 text-right">
-													{formatAmount(level.amountIn)}
-												</td>
-												<td className="py-1.5 text-right text-primary">
-													{formatAmount(level.cumulativeIn)}
-												</td>
-											</tr>
-										))}
-									</tbody>
-								</table>
-							</div>
+				{leg.exists ? (
+					<div className="flex flex-wrap items-center gap-x-8 gap-y-3">
+						<dl className="flex flex-wrap gap-x-8 gap-y-3">
+							{stats.map((stat) => (
+								<div key={stat.label} className="flex flex-col gap-1">
+									<dt className="label-12 text-tertiary">{stat.label}</dt>
+									<dd className="copy-14 tabular-nums text-primary">
+										{stat.value}
+									</dd>
+								</div>
+							))}
+						</dl>
+						{leg.bestTick !== null && (
+							<button
+								type="button"
+								aria-expanded={open}
+								aria-controls={depthId}
+								onClick={() => setOpen(!open)}
+								className="inline-flex h-7 items-center gap-1.5 rounded-[7px] border border-card-border px-2.5 copy-13 text-secondary hover:text-primary cursor-pointer press-down"
+							>
+								Depth
+								<ChevronDownIcon
+									className={cx(
+										'size-3.5 transition-transform duration-150',
+										open && 'rotate-180',
+									)}
+								/>
+							</button>
 						)}
 					</div>
-				</details>
+				) : (
+					<span className="copy-13 text-tertiary">Book not created</span>
+				)}
+			</div>
+			{open && (
+				<div
+					id={depthId}
+					className="border-t border-dashed border-card-border"
+					aria-live="polite"
+				>
+					{depth.isPending ? (
+						<p role="status" className="px-[18px] py-4 copy-13 text-tertiary">
+							Loading depth…
+						</p>
+					) : depth.isError ? (
+						<p role="status" className="px-[18px] py-4 copy-13 text-tertiary">
+							Depth is unavailable.{' '}
+							<button
+								type="button"
+								className="text-accent hover:underline cursor-pointer"
+								onClick={() => void depth.refetch()}
+							>
+								Try again
+							</button>
+						</p>
+					) : depth.data.length === 0 ? (
+						<p className="px-[18px] py-4 copy-13 text-tertiary">
+							No resting orders within {depthTicks} price levels of the best
+							price.
+						</p>
+					) : (
+						<DepthLadder levels={depth.data} leg={leg} />
+					)}
+				</div>
 			)}
 		</div>
+	)
+}
+
+/** Each level's bar shows how much of the scanned depth fills by that price. */
+function DepthLadder(props: {
+	levels: DexDepthLevel[]
+	leg: DexLeg
+}): React.JSX.Element {
+	const { levels, leg } = props
+	const total = Number(levels[levels.length - 1]?.cumulativeIn ?? 0)
+	// Grid rows let one bar span the whole row; a row's background would
+	// repaint per cell.
+	const row = 'grid grid-cols-3 gap-4 px-[18px]'
+	return (
+		<table className="block w-full tabular-nums whitespace-nowrap copy-13 pb-2">
+			<thead className="block">
+				<tr className={cx(row, 'py-2 label-12 text-tertiary')}>
+					<th className="text-left font-normal">
+						Price · {leg.to.symbol} per {leg.from.symbol}
+					</th>
+					<th className="text-right font-normal">Size · {leg.from.symbol}</th>
+					<th className="text-right font-normal">Total · {leg.from.symbol}</th>
+				</tr>
+			</thead>
+			<tbody className="block">
+				{levels.map((level) => (
+					<tr key={level.tick} className={cx(row, 'relative py-1.5')}>
+						<td className={cx(leg.isBid ? 'text-positive' : 'text-negative')}>
+							<span
+								aria-hidden="true"
+								className={cx(
+									'absolute inset-y-px left-0',
+									leg.isBid ? 'bg-positive/10' : 'bg-negative/10',
+								)}
+								style={{
+									width: `${total > 0 ? (Number(level.cumulativeIn) / total) * 100 : 0}%`,
+								}}
+							/>
+							<span className="relative">{rate.format(level.rate)}</span>
+						</td>
+						<td className="relative text-right text-secondary">
+							{size.format(Number(level.amountIn))}
+						</td>
+						<td className="relative text-right text-primary">
+							{size.format(Number(level.cumulativeIn))}
+						</td>
+					</tr>
+				))}
+			</tbody>
+		</table>
+	)
+}
+
+function TokenBadge(props: { token: DexToken }): React.JSX.Element {
+	return (
+		<Link
+			to="/address/$address"
+			params={{ address: props.token.address }}
+			className="inline-flex h-9 shrink-0 items-center gap-2 rounded-full border border-card-border bg-base-plane pl-1.5 pr-3 copy-14 font-medium text-primary hover:border-accent press-down"
+		>
+			<TokenIcon address={props.token.address} className="size-6" />
+			{props.token.symbol}
+		</Link>
 	)
 }
 
