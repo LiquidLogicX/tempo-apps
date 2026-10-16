@@ -29,6 +29,7 @@ import type { DexLeg } from '#lib/server/dex-route'
 import { getTempoChain } from '#wagmi.config'
 import ArrowRightIcon from '~icons/lucide/arrow-right'
 import ArrowLeftRightIcon from '~icons/lucide/arrow-left-right'
+import ChevronLeftIcon from '~icons/lucide/chevron-left'
 import RefreshCwIcon from '~icons/lucide/refresh-cw'
 
 export const Route = createFileRoute('/_layout/dex/$from/$to')({
@@ -103,7 +104,13 @@ function DexRoutePage(): React.JSX.Element {
 		<div className="flex flex-col gap-6 px-4 pt-8 sm:pt-20 pb-16 max-w-[1200px] mx-auto w-full">
 			<div className="flex flex-wrap items-start justify-between gap-4">
 				<div className="flex flex-col gap-3 min-w-0">
-					<div className="copy-13 text-tertiary">Stablecoin DEX</div>
+					<Link
+						to="/dex"
+						className="inline-flex items-center gap-1 self-start copy-13 text-tertiary hover:text-primary"
+					>
+						<ChevronLeftIcon className="size-3.5" />
+						Stablecoin DEX
+					</Link>
 					<h1 className="flex flex-wrap items-center gap-3 text-[24px] sm:text-[32px] leading-tight tracking-[-0.02em] font-semibold text-primary">
 						{from && to ? (
 							<>

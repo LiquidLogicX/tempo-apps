@@ -143,8 +143,14 @@ export const docs = {
 		params: { page: 'Page number.' },
 	},
 	'/dex/': {
-		title: 'Stablecoin DEX',
-		description: 'Redirects to the mainnet USDT0 → pathUSD route.',
+		title: 'Stablecoin DEX pairs',
+		description:
+			'Stablecoin DEX orderbooks that swaps route through, with resting liquidity, spread, and 1-day and 30-day volume.',
+		params: {
+			sort: 'Sort by `liquidity`, `spread`, `day` volume, or `month` volume.',
+			dir: 'Sort direction: `asc` or `desc`.',
+			unverified: 'Include pairs with a token outside the verified token list.',
+		},
 	},
 	'/dex/$from/$to': {
 		title: 'Stablecoin DEX route',
