@@ -18,25 +18,32 @@ const LIVE_SCOPE = 'dex-swaps'
 /** Recent swaps, or only those between a route's two ends. */
 export function useDexSwaps(
 	live: boolean,
-	path?: TokenAddress[],
+	input: { path?: TokenAddress[] | undefined; unverified?: boolean },
 	enabled = true,
 ) {
-	return useQuery({ ...dexSwapsQueryOptions(live, path), enabled })
+	return useQuery({ ...dexSwapsQueryOptions(live, input), enabled })
 }
 
 export function DexSwapsGrid(props: DexSwapsGrid.Props): React.JSX.Element {
-	const { swaps, loading, live } = props
+	const { swaps, loading, live, base } = props
+	const label = (swap: DexSwap) =>
+		base ? <SideLabel swap={swap} base={base} /> : <SwapLabel swap={swap} />
 	return (
 		<DataGrid
 			liveScope={live ? LIVE_SCOPE : undefined}
 			columns={{
 				stacked: [
-					{ label: 'Swap', align: 'start', width: '1fr' },
+					{ label: base ? 'Type' : 'Swap', align: 'start', width: '1fr' },
 					{ label: 'Value', align: 'end', width: 'max-content' },
 				],
 				tabs: [
 					{ label: 'Time', align: 'start', width: 120 },
-					{ label: 'Swap', align: 'start', width: '2fr', minWidth: 240 },
+					{
+						label: base ? 'Type' : 'Swap',
+						align: 'start',
+						width: '2fr',
+						minWidth: 240,
+					},
 					{ label: 'Value', align: 'end', width: '1fr', minWidth: 96 },
 					{ label: 'Sent', align: 'end', width: '1fr', minWidth: 140 },
 					{ label: 'Received', align: 'end', width: '1fr', minWidth: 140 },
@@ -50,7 +57,7 @@ export function DexSwapsGrid(props: DexSwapsGrid.Props): React.JSX.Element {
 						mode === 'stacked'
 							? [
 									<div key="swap" className="flex flex-col gap-1 min-w-0">
-										<SwapLabel swap={swap} />
+										{label(swap)}
 										<RelativeTime
 											timestamp={BigInt(swap.timestamp)}
 											className="label-12 text-tertiary"
@@ -66,7 +73,7 @@ export function DexSwapsGrid(props: DexSwapsGrid.Props): React.JSX.Element {
 										timestamp={BigInt(swap.timestamp)}
 										className="text-secondary tabular-nums whitespace-nowrap"
 									/>,
-									<SwapLabel key="swap" swap={swap} />,
+									<span key="swap">{label(swap)}</span>,
 									<span key="value" className="tabular-nums text-primary">
 										{PriceFormatter.format(swap.amountIn)}
 									</span>,
@@ -106,7 +113,13 @@ export function DexSwapsGrid(props: DexSwapsGrid.Props): React.JSX.Element {
 }
 
 export declare namespace DexSwapsGrid {
-	type Props = { swaps: DexSwap[]; loading: boolean; live: boolean }
+	type Props = {
+		swaps: DexSwap[]
+		loading: boolean
+		live: boolean
+		/** Label each swap as buying or selling this token. */
+		base?: TokenAddress | undefined
+	}
 }
 
 export function LivePill(props: LivePill.Props): React.JSX.Element {
@@ -153,6 +166,27 @@ function SwapLabel(props: { swap: DexSwap }): React.JSX.Element {
 			<TokenChip token={from} />
 			<span className="text-tertiary">for</span>
 			<TokenChip token={to} />
+		</span>
+	)
+}
+
+/** A taker buying the base filled asks; selling it filled bids. */
+function SideLabel(props: {
+	swap: DexSwap
+	base: TokenAddress
+}): React.JSX.Element {
+	const { from, to } = props.swap
+	const buy = to.address === props.base
+	return (
+		<span className="flex items-center gap-1.5 min-w-0 whitespace-nowrap">
+			<span
+				className={cx('font-medium', buy ? 'text-positive' : 'text-negative')}
+			>
+				{buy ? 'Buy' : 'Sell'}
+			</span>
+			<TokenChip token={buy ? to : from} />
+			<span className="text-tertiary">{buy ? 'with' : 'for'}</span>
+			<TokenChip token={buy ? from : to} />
 		</span>
 	)
 }

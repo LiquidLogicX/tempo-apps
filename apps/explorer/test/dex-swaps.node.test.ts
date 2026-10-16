@@ -62,7 +62,12 @@ describe('Stablecoin DEX swaps', () => {
 			timestamp: 100,
 			log,
 		})
-		expect(groupSwaps([hop(OUSD, USDC, 5), hop(PATH, OUSD, 3)])).toEqual([
+		const second = {
+			...hop(OUSD, USDC, 5),
+			amountIn: 1_999_000n,
+			amountOut: 1_998_000n,
+		}
+		expect(groupSwaps([second, hop(PATH, OUSD, 3)])).toEqual([
 			{
 				id: `${TX}-3`,
 				transactionHash: TX,
@@ -71,8 +76,17 @@ describe('Stablecoin DEX swaps', () => {
 				from: PATH,
 				to: USDC,
 				amountIn: 2_000_000n,
-				amountOut: 1_999_000n,
+				amountOut: 1_998_000n,
 			},
+		])
+		// Separate trades whose middle amounts differ are not one route.
+		const separate = groupSwaps([
+			hop(PATH, OUSD, 1),
+			{ ...hop(OUSD, USDC, 2), amountIn: 500_000n, amountOut: 499_000n },
+		])
+		expect(separate.map((swap) => [swap.from, swap.to])).toEqual([
+			[PATH, OUSD],
+			[OUSD, USDC],
 		])
 		const roundTrip = groupSwaps([hop(PATH, OUSD, 1), hop(OUSD, PATH, 2)])
 		expect(roundTrip.map((swap) => [swap.from, swap.to])).toEqual([

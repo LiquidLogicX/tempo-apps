@@ -44,16 +44,12 @@ function DexPoolsPage(): React.JSX.Element {
 	const [live, setLive] = useState(true)
 	const [paused, setPaused] = useState(false)
 	// Poll only while the feed is on screen.
+	// The server applies the verified filter so spam can't crowd the feed.
 	const swapsQuery = useDexSwaps(
 		live && !paused && (isMobile || search.tab === 'swaps'),
+		{ unverified: search.unverified },
 	)
-	const swaps = useMemo(
-		() =>
-			(swapsQuery.data ?? []).filter(
-				(swap) => search.unverified || (swap.from.verified && swap.to.verified),
-			),
-		[swapsQuery.data, search.unverified],
-	)
+	const swaps = swapsQuery.data ?? []
 
 	const pools = useMemo(
 		() =>

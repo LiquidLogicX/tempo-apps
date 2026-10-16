@@ -115,8 +115,10 @@ export type DexSwapRow = {
 /**
  * Chains one taker's fills in a transaction into a swap: the token only
  * sold is the source and the token only bought the destination, so routed
- * hops through an intermediate token collapse into one row. Anything else,
- * such as a round trip, is shown hop by hop.
+ * hops through an intermediate token collapse into one row. They only
+ * collapse when each intermediate token's amount in matches its amount out,
+ * so separate trades in one transaction stay apart. Anything else, such as
+ * a round trip, is shown hop by hop.
  */
 export function groupSwaps(
 	hops: readonly (DexHop & {
@@ -158,7 +160,25 @@ export function groupSwaps(
 		})
 		const [source] = sources
 		const [target] = targets
-		if (sources.length === 1 && targets.length === 1 && source && target)
+		const routed = [...sold]
+			.filter((token) => bought.has(token))
+			.every((token) =>
+				balanced(
+					group
+						.filter((hop) => hop.to === token)
+						.reduce((sum, hop) => sum + hop.amountOut, 0n),
+					group
+						.filter((hop) => hop.from === token)
+						.reduce((sum, hop) => sum + hop.amountIn, 0n),
+				),
+			)
+		if (
+			routed &&
+			sources.length === 1 &&
+			targets.length === 1 &&
+			source &&
+			target
+		)
 			return [row(source, target, first.log, group)]
 		const edges = new Map<string, typeof group>()
 		for (const hop of group) {
@@ -175,4 +195,14 @@ export function groupSwaps(
 			)
 		})
 	})
+}
+
+/**
+ * Fills are priced per tick and rounded, so a routed amount can differ by a
+ * little between the hop that buys it and the hop that sells it.
+ */
+function balanced(received: bigint, spent: bigint): boolean {
+	const larger = received > spent ? received : spent
+	const difference = received > spent ? received - spent : spent - received
+	return difference <= 10n + larger / 10_000n
 }

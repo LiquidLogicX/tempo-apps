@@ -104,48 +104,72 @@ export function sideValue(
 	return total
 }
 
-/**
- * Splits a base token's fills between its books. Swaps only route through
- * the book against the current quote token, so fills after the latest
- * quote-token switch belong to it and earlier fills to the previous book.
- */
-export function attributeVolume(input: {
-	quote: Address
-	routedQuote: Address
-	previousQuote: Address | null
-	total: DexPoolVolume | undefined
-	beforeSwitch: DexPoolVolume | undefined
-}): DexPoolVolume {
-	const total = input.total ?? emptyVolume
-	// With no known earlier book, pre-switch fills stay with the routed book
-	// rather than dropping out of every total.
-	const before = (input.previousQuote && input.beforeSwitch) || emptyVolume
-	if (equal(input.quote, input.routedQuote))
-		return {
-			day: Math.max(0, total.day - before.day),
-			month: Math.max(0, total.month - before.month),
-		}
-	if (equal(input.quote, input.previousQuote)) return before
-	return emptyVolume
+/** The quote a base had before its first switch: its one other book. */
+export function originalQuote(
+	books: readonly Address[],
+	switches: readonly { quote: Address }[],
+): Address | null {
+	const targets = switches.map((entry) => entry.quote)
+	const others = books.filter(
+		(quote) => !targets.some((target) => equal(quote, target)),
+	)
+	return others.length === 1 ? (others[0] ?? null) : null
+}
+
+/** Fills between two quote switches; null bounds are open. */
+export type VolumeInterval = {
+	from: number | null
+	to: number | null
+	/** The quote swaps routed through then; null when unknown. */
+	quote: Address | null
 }
 
 /**
- * The quote a base routed through before its latest switch: the target of
- * the switch before it, or else its only book against neither the current
- * nor the staged quote.
+ * Splits a window at each quote switch inside it, newest first. Fills after
+ * a switch went to its new quote; fills before the oldest one went to the
+ * quote it replaced.
  */
-export function previousQuote(input: {
-	updates: readonly Address[]
-	books: readonly Address[]
+export function volumeIntervals(input: {
+	/** Every switch, newest first. */
+	switches: readonly { quote: Address; at: number }[]
+	windowStart: number
+	original: Address | null
+}): VolumeInterval[] {
+	const inside = input.switches.filter((entry) => entry.at > input.windowStart)
+	if (inside.length === 0) return [{ from: null, to: null, quote: null }]
+	return [
+		...inside.map((entry, index) => ({
+			from: entry.at,
+			to: inside[index - 1]?.at ?? null,
+			quote: entry.quote,
+		})),
+		{
+			from: null,
+			to: inside[inside.length - 1]?.at ?? null,
+			quote: input.switches[inside.length]?.quote ?? input.original,
+		},
+	]
+}
+
+/**
+ * Credits each interval to the book of the quote it routed through, and an
+ * interval with an unknown quote to the routed book, so nothing is dropped.
+ */
+export function volumeForBook(input: {
+	quote: Address
 	routedQuote: Address
-	nextQuote: Address
-}): Address | null {
-	if (input.updates.length > 1) return input.updates[1] ?? null
-	const others = input.books.filter(
-		(quote) =>
-			!equal(quote, input.routedQuote) && !equal(quote, input.nextQuote),
+	intervals: readonly { quote: Address | null; volume: DexPoolVolume }[]
+}): DexPoolVolume {
+	return input.intervals.reduce(
+		(sum, interval) =>
+			equal(interval.quote ?? input.routedQuote, input.quote)
+				? {
+						day: sum.day + interval.volume.day,
+						month: sum.month + interval.volume.month,
+					}
+				: sum,
+		emptyVolume,
 	)
-	return others.length === 1 ? (others[0] ?? null) : null
 }
 
 export const dexPoolSorts = ['liquidity', 'spread', 'day', 'month'] as const

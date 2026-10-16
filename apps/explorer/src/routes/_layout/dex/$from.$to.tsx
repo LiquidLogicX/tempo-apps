@@ -104,7 +104,11 @@ function DexRoutePage(): React.JSX.Element {
 	// Poll only while the feed is on screen.
 	const swaps = useDexSwaps(
 		live && !paused && (isMobile || section === 1),
-		query.data?.path.map((token) => token.address),
+		// Someone who opened this pair wants its swaps, verified or not.
+		{
+			path: query.data?.path.map((token) => token.address),
+			unverified: true,
+		},
 		Boolean(query.data),
 	)
 	const snapshot = query.data
@@ -377,6 +381,11 @@ function DexRoutePage(): React.JSX.Element {
 											swaps={swaps.data ?? []}
 											loading={swaps.isPending}
 											live={live && !paused}
+											base={
+												snapshot.legs.length === 1
+													? snapshot.legs[0]?.base.address
+													: from.address
+											}
 										/>
 									</div>
 								),

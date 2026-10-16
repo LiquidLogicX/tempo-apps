@@ -13,10 +13,18 @@ export function dexPoolsQueryOptions() {
 	})
 }
 
-export function dexSwapsQueryOptions(live: boolean, path?: Address[]) {
+export function dexSwapsQueryOptions(
+	live: boolean,
+	input: { path?: Address[] | undefined; unverified?: boolean | undefined },
+) {
 	return queryOptions({
-		queryKey: ['dex-swaps', getTempoChain().id, path ?? null],
-		queryFn: () => fetchDexSwaps({ data: { path } }),
+		queryKey: [
+			'dex-swaps',
+			getTempoChain().id,
+			input.path ?? null,
+			Boolean(input.unverified),
+		],
+		queryFn: () => fetchDexSwaps({ data: input }),
 		staleTime: 4_000,
 		refetchInterval: live ? 5_000 : false,
 		retry: 1,

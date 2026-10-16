@@ -2,7 +2,7 @@ import { createServerFn } from '@tanstack/react-start'
 import { type Address, formatUnits, type Hex } from 'viem'
 import { Addresses } from 'viem/tempo'
 import * as z from 'zod/mini'
-import { append } from '#lib/dex-pools'
+import { append, originalQuote } from '#lib/dex-pools'
 import {
 	type DexFill,
 	type DexOrderState,
@@ -19,14 +19,17 @@ import {
 	type Row,
 	readQuoteSwitches,
 	readTokens,
+	readVerified,
 } from '#lib/server/dex-indexer'
 import { withDeadline } from '#lib/server/dex-route'
 import { withImmutableDataCache } from '#lib/server/immutable-data-cache'
 import { zAddress } from '#lib/zod'
 import { getBatchedClient, getTempoChain } from '#wagmi.config'
 
-/** Recent fills to assemble; a swap is one or more fills. */
+/** Fills read per page; a swap is one or more fills. */
 const FILLS = 400
+/** Pages scanned for enough matching swaps before giving up. */
+const PAGES = 5
 const SWAPS = 25
 
 const stablecoinDex = Addresses.stablecoinDex.toLowerCase()
@@ -56,28 +59,29 @@ function orderStates(rows: Row[]): [string, DexOrderState][] {
 }
 
 /**
- * Swaps are assembled from indexed fills rather than the Tempo API's swap
- * feed, which prices every fill against a base's first quote token and so
- * splits routes through a token that has since switched quote tokens.
+ * A page of fills before `before`, newest first. A full page ends at a block
+ * boundary so one transaction's fills are never split across pages; `next`
+ * is where the following page starts.
  */
-export async function getDexSwaps(
-	input: DexSwapsInput = {},
-): Promise<DexSwap[]> {
-	const chainId = getTempoChain().id
-	const path = input.path
+async function readFills(
+	chainId: number,
+	path: readonly Address[] | undefined,
+	before: number | undefined,
+): Promise<{ fills: DexFill[]; next: number | undefined }> {
 	// A pair's swaps can fill on any book along its route.
 	const onPath = path
 		? `AND "orderId" IN (SELECT "orderId" FROM dex_orders
 			WHERE address = '${stablecoinDex}' AND token IN (${list(path)}))`
 		: ''
-	const fillRows = await indexer(
+	const rows = await indexer(
 		chainId,
 		`SELECT block_num, log_idx, tx_hash, toUnixTimestamp(block_timestamp) AS ts,
 		toString("orderId") AS id, taker, toString("amountFilled") AS amount
 		FROM dex_fills WHERE address = '${stablecoinDex}' ${onPath}
+		${before === undefined ? '' : `AND block_num < ${before}`}
 		ORDER BY block_num DESC, log_idx DESC LIMIT ${FILLS}`,
 	)
-	const fills = fillRows.flatMap((row): DexFill[] => {
+	const fills = rows.flatMap((row): DexFill[] => {
 		const transactionHash = String(row.tx_hash).toLowerCase()
 		const taker = addressOf(row.taker)
 		const id = String(row.id)
@@ -96,28 +100,67 @@ export async function getDexSwaps(
 			},
 		]
 	})
-	if (fills.length === 0) return []
+	if (rows.length < FILLS) return { fills, next: undefined }
+	const oldest = Math.min(...fills.map((fill) => fill.block))
+	const complete = fills.filter((fill) => fill.block > oldest)
+	// A page inside one block can't end on a boundary; move past it.
+	return complete.length > 0
+		? { fills: complete, next: oldest + 1 }
+		: { fills, next: oldest }
+}
 
+/**
+ * Each order's state before the page's fills: its placement, the newest
+ * flip before the page, and flips within it. Older flips are never needed.
+ */
+async function readOrderStates(
+	chainId: number,
+	fills: readonly DexFill[],
+): Promise<Map<string, DexOrderState[]>> {
 	const ids = [...new Set(fills.map((fill) => fill.orderId))].join(', ')
+	const first = Math.min(...fills.map((fill) => fill.block))
+	const last = Math.max(...fills.map((fill) => fill.block))
 	const columns = `toString("orderId") AS id, token, "isBid" AS bid, tick, block_num, log_idx`
-	const [placed, flipped, blockNumber] = await Promise.all([
+	const orders = `address = '${stablecoinDex}' AND "orderId" IN (${ids})`
+	const [placed, earlier, within] = await Promise.all([
+		indexer(chainId, `SELECT ${columns} FROM dex_orders WHERE ${orders}`),
 		indexer(
 			chainId,
-			`SELECT ${columns} FROM dex_orders
-			WHERE address = '${stablecoinDex}' AND "orderId" IN (${ids})`,
+			`SELECT toString("orderId") AS id,
+			argMax(token, tuple(block_num, log_idx)) AS token,
+			argMax("isBid", tuple(block_num, log_idx)) AS bid,
+			argMax(tick, tuple(block_num, log_idx)) AS tick,
+			max(block_num) AS flipped_block,
+			argMax(log_idx, tuple(block_num, log_idx)) AS flipped_log
+			FROM orderflipped WHERE ${orders} AND block_num < ${first}
+			GROUP BY "orderId"`,
+			orderFlipped,
 		),
 		indexer(
 			chainId,
 			`SELECT ${columns} FROM orderflipped
-			WHERE address = '${stablecoinDex}' AND "orderId" IN (${ids})`,
+			WHERE ${orders} AND block_num >= ${first} AND block_num <= ${last}`,
 			orderFlipped,
 		),
-		getBatchedClient().getBlockNumber(),
 	])
 	const states = new Map<string, DexOrderState[]>()
-	for (const [id, state] of [...orderStates(placed), ...orderStates(flipped)])
+	const latest = earlier.map((row) => ({
+		...row,
+		block_num: row.flipped_block,
+		log_idx: row.flipped_log,
+	}))
+	for (const [id, state] of orderStates([...placed, ...latest, ...within]))
 		append(states, id, state)
+	return states
+}
 
+/** One page of fills as swaps, newest first. */
+async function assembleSwaps(
+	chainId: number,
+	fills: readonly DexFill[],
+	blockNumber: bigint,
+): Promise<DexSwap[]> {
+	const states = await readOrderStates(chainId, fills)
 	const bases = new Set(
 		[...states.values()].flatMap((list) => list.map((state) => state.token)),
 	)
@@ -141,25 +184,17 @@ export async function getDexSwaps(
 		blockNumber,
 	)
 
-	/** Before its first switch a base quoted against its one other book. */
-	function originalQuote(base: Address): Address | undefined {
-		const history = switches.get(base) ?? []
-		if (history.length === 0) return tokens.get(base)?.quoteToken
-		const targets = new Set(history.map((entry) => entry.quote))
-		const others = (books.get(base) ?? []).filter(
-			(quote) => !targets.has(quote),
-		)
-		return others.length === 1 ? others[0] : undefined
-	}
-
 	const hops = fills.flatMap((fill) => {
 		const order = orderAt(states.get(fill.orderId) ?? [], fill)
 		const base = order && tokens.get(order.token)
-		const original = order && originalQuote(order.token)
-		if (!order || !base || !original) return []
-		const quote = tokens.get(
-			quoteAt(switches.get(order.token) ?? [], original, fill.timestamp),
-		)
+		if (!order || !base) return []
+		const history = switches.get(order.token) ?? []
+		// Before its first switch a base quoted against its one other book.
+		const original = history.length
+			? originalQuote(books.get(order.token) ?? [], history)
+			: base.quoteToken
+		if (!original) return []
+		const quote = tokens.get(quoteAt(history, original, fill.timestamp))
 		if (!quote) return []
 		return [
 			{
@@ -171,32 +206,62 @@ export async function getDexSwaps(
 			},
 		]
 	})
+	return groupSwaps(hops).flatMap((row): DexSwap[] => {
+		const from = tokens.get(row.from)?.token
+		const to = tokens.get(row.to)?.token
+		if (!from || !to) return []
+		return [
+			{
+				id: row.id,
+				transactionHash: row.transactionHash,
+				timestamp: row.timestamp,
+				taker: row.taker,
+				from,
+				to,
+				amountIn: Number(formatUnits(row.amountIn, from.decimals)),
+				amountOut: Number(formatUnits(row.amountOut, to.decimals)),
+			},
+		]
+	})
+}
+
+/**
+ * Swaps are assembled from indexed fills rather than the Tempo API's swap
+ * feed, which prices every fill against a base's first quote token and so
+ * splits routes through a token that has since switched quote tokens.
+ * Pages are read until enough swaps match, so fills the page filters out,
+ * such as unverified spam, can't empty the feed.
+ */
+export async function getDexSwaps(
+	input: DexSwapsInput = {},
+): Promise<DexSwap[]> {
+	const chainId = getTempoChain().id
+	const { path, unverified = false } = input
+	const [verified, blockNumber] = await Promise.all([
+		readVerified(chainId),
+		getBatchedClient().getBlockNumber(),
+	])
 	const [first, last] = path ? [path[0], path[path.length - 1]] : []
-	return groupSwaps(hops)
-		.filter(
-			(row) =>
-				!path ||
-				(row.from === first && row.to === last) ||
-				(row.from === last && row.to === first),
-		)
-		.flatMap((row): DexSwap[] => {
-			const from = tokens.get(row.from)?.token
-			const to = tokens.get(row.to)?.token
-			if (!from || !to) return []
-			return [
-				{
-					id: row.id,
-					transactionHash: row.transactionHash,
-					timestamp: row.timestamp,
-					taker: row.taker,
-					from,
-					to,
-					amountIn: Number(formatUnits(row.amountIn, from.decimals)),
-					amountOut: Number(formatUnits(row.amountOut, to.decimals)),
-				},
-			]
-		})
-		.slice(0, SWAPS)
+	const matches = (swap: DexSwap) =>
+		(unverified || (swap.from.verified && swap.to.verified)) &&
+		(!path ||
+			(swap.from.address === first && swap.to.address === last) ||
+			(swap.from.address === last && swap.to.address === first))
+	// Fail closed: without the registry, no swap is verified.
+	if (!unverified && verified.size === 0) return []
+
+	const swaps: DexSwap[] = []
+	let before: number | undefined
+	for (let page = 0; page < PAGES && swaps.length < SWAPS; page++) {
+		const { fills, next } = await readFills(chainId, path, before)
+		if (fills.length > 0)
+			swaps.push(
+				...(await assembleSwaps(chainId, fills, blockNumber)).filter(matches),
+			)
+		if (next === undefined) break
+		before = next
+	}
+	return swaps.slice(0, SWAPS)
 }
 
 const inputSchema = z.object({
@@ -205,9 +270,13 @@ const inputSchema = z.object({
 			.array(zAddress({ lowercase: true }))
 			.check(z.minLength(2), z.maxLength(16)),
 	),
+	unverified: z.optional(z.boolean()),
 })
 
-/** Optionally only swaps between a route's two ends, in either direction. */
+/**
+ * Optionally only swaps between a route's two ends, in either direction;
+ * swaps with an unverified token are left out unless `unverified` is set.
+ */
 export type DexSwapsInput = z.infer<typeof inputSchema>
 
 export const fetchDexSwaps = createServerFn({ method: 'GET' })
@@ -217,7 +286,7 @@ export const fetchDexSwaps = createServerFn({ method: 'GET' })
 	.handler(async ({ data }): Promise<DexSwap[]> => {
 		try {
 			return await withImmutableDataCache({
-				key: `dex-swaps:v1:${getTempoChain().id}:${data.path?.join(',') ?? 'all'}`,
+				key: `dex-swaps:v2:${getTempoChain().id}:${data.path?.join(',') ?? 'all'}:${data.unverified ? 'all' : 'verified'}`,
 				ttlSeconds: 5,
 				load: () => withDeadline(getDexSwaps(data)),
 				shouldCache: (swaps) => swaps.length > 0,

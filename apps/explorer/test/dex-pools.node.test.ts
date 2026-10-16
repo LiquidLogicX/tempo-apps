@@ -2,15 +2,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Address } from 'viem'
 import { Addresses } from 'viem/tempo'
 import {
-	attributeVolume,
 	bookStatus,
 	type DexPool,
 	dexPoolsSearchSchema,
 	matchesPoolQuery,
-	previousQuote,
+	originalQuote,
 	sideValue,
 	sortPools,
 	spreadBps,
+	volumeForBook,
+	volumeIntervals,
 } from '#lib/dex-pools'
 import { getDexPools } from '#lib/server/dex-pools'
 
@@ -35,6 +36,7 @@ vi.mock('#wagmi.config', () => ({
 const USDT = '0x20c00000000000000000000014f22ca97301eb73'
 const OUSD = '0x20c0000000000000000000006a37da5c996874be'
 const PATH = Addresses.pathUsd
+const USDC = '0x20c000000000000000000000b9537d11c60e8b50'
 const ACTIVE = `0x${'a'.repeat(64)}` as const
 const RETIRED = `0x${'b'.repeat(64)}` as const
 const SWITCH_AT = Math.floor(Date.now() / 1000) - 10 * 86_400
@@ -82,9 +84,12 @@ beforeEach(() => {
 					[USDT, 0, 10],
 				],
 			)
-		// Fills before the switch went to the pathUSD book.
-		if (sql.includes('bucket <'))
-			return rows(['token', 'day', 'month'], [[USDT, '0', '4000000']])
+		// One split, so fills before it went to the pathUSD book.
+		if (sql.includes('AS d0'))
+			return rows(
+				['d0', 'm0', 'd1', 'm1'],
+				[['1000000', '1000000', '0', '4000000']],
+			)
 		if (sql.includes('FROM dex_ohlc_1m') && sql.includes('token IN'))
 			return rows(['token', 'day', 'month'], [[USDT, '1000000', '5000000']])
 		if (sql.includes('FROM dex_ohlc_1m')) return rows(['token'], [[USDT]])
@@ -133,38 +138,46 @@ describe('Stablecoin DEX pairs', () => {
 		)
 	})
 
-	it('splits volume at the latest quote-token switch', () => {
-		const input = {
-			routedQuote: OUSD as Address,
-			previousQuote: PATH,
-			total: { day: 10, month: 50 },
-			beforeSwitch: { day: 0, month: 40 },
-		}
-		expect(attributeVolume({ ...input, quote: OUSD })).toEqual({
-			day: 10,
-			month: 10,
+	it('splits volume at every quote switch in the window', () => {
+		// Newest first: USDT moved PATH -> USDC -> OUSD, both inside the window.
+		const switches = [
+			{ quote: OUSD as Address, at: 300 },
+			{ quote: USDC as Address, at: 200 },
+		]
+		const intervals = volumeIntervals({
+			switches,
+			windowStart: 100,
+			original: PATH,
 		})
-		expect(attributeVolume({ ...input, quote: PATH })).toEqual(
-			input.beforeSwitch,
-		)
-		expect(attributeVolume({ ...input, quote: USDT }).month).toBe(0)
-		// An unknown earlier book leaves pre-switch fills on the routed book.
+		expect(intervals).toEqual([
+			{ from: 300, to: null, quote: OUSD },
+			{ from: 200, to: 300, quote: USDC },
+			{ from: null, to: 200, quote: PATH },
+		])
+		const volumes = intervals.map((interval, index) => ({
+			quote: interval.quote,
+			volume: { day: 0, month: [5, 3, 2][index] ?? 0 },
+		}))
+		const book = (quote: Address) =>
+			volumeForBook({ quote, routedQuote: OUSD, intervals: volumes }).month
+		expect([book(OUSD), book(USDC), book(PATH)]).toEqual([5, 3, 2])
+		// A stretch with an unknown quote stays with the routed book.
 		expect(
-			attributeVolume({ ...input, previousQuote: null, quote: OUSD }),
-		).toEqual(input.total)
+			volumeForBook({
+				quote: OUSD,
+				routedQuote: OUSD,
+				intervals: [...volumes.slice(0, 2), { ...volumes[2], quote: null }],
+			}).month,
+		).toBe(7)
+		expect(
+			volumeIntervals({ switches, windowStart: 400, original: PATH }),
+		).toEqual([{ from: null, to: null, quote: null }])
 	})
 
-	it('finds the previous quote from switches or the only other book', () => {
-		const common = { routedQuote: OUSD as Address, nextQuote: OUSD as Address }
-		expect(previousQuote({ ...common, updates: [OUSD, USDT], books: [] })).toBe(
-			USDT,
-		)
-		expect(
-			previousQuote({ ...common, updates: [OUSD], books: [PATH, OUSD] }),
-		).toBe(PATH)
-		expect(
-			previousQuote({ ...common, updates: [OUSD], books: [PATH, USDT, OUSD] }),
-		).toBeNull()
+	it('finds the quote before the first switch from the only other book', () => {
+		const switches = [{ quote: OUSD as Address }]
+		expect(originalQuote([PATH, OUSD], switches)).toBe(PATH)
+		expect(originalQuote([PATH, USDT, OUSD], switches)).toBeNull()
 	})
 
 	it('values bids at their tick price in quote decimals', () => {

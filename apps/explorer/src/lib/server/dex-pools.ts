@@ -3,15 +3,17 @@ import { type Address, formatUnits, type Hex } from 'viem'
 import { Tick } from 'viem/tempo'
 import {
 	append,
-	attributeVolume,
 	bookStatus,
 	type DexPool,
 	type DexPoolsSnapshot,
 	type DexPoolToken,
 	type DexPoolVolume,
-	previousQuote,
+	emptyVolume,
+	originalQuote,
 	sideValue,
 	tickPrice,
+	volumeForBook,
+	volumeIntervals,
 } from '#lib/dex-pools'
 import {
 	addressOf,
@@ -136,13 +138,23 @@ export async function getDexPools(): Promise<DexPoolsSnapshot> {
 		if (!hexKey.test(key) || !base || !quote) return []
 		return [{ key: key as Hex, base, quote }]
 	})
-	// Fills before a switch inside the window went to the previous book.
-	const switches = [...updates]
-		.map(([base, list]) => ({ base, at: list[0]?.at ?? 0 }))
-		.filter((entry) => entry.at * 1000 > now - 30 * 86_400_000)
+	const booksByBase = new Map<Address, Address[]>()
+	for (const pair of pairs) append(booksByBase, pair.base, pair.quote)
+	// A base that switched quote tokens inside the window split its fills
+	// between books; each stretch between switches is summed separately.
+	const intervals = new Map(
+		[...updates].flatMap(([base, history]) => {
+			const split = volumeIntervals({
+				switches: history,
+				windowStart: (now - 30 * 86_400_000) / 1000,
+				original: originalQuote(booksByBase.get(base) ?? [], history),
+			})
+			return split.length > 1 ? [[base, split] as const] : []
+		}),
+	)
 
 	const tokens = [...new Set(pairs.flatMap((pair) => [pair.base, pair.quote]))]
-	const [metadata, books, levelRows, beforeSwitchRows] = await Promise.all([
+	const [metadata, books, levelRows, splitRows] = await Promise.all([
 		readTokens(chainId, tokens, blockNumber),
 		readContracts(
 			pairs.map((pair) => ({
@@ -166,19 +178,31 @@ export async function getDexPools(): Promise<DexPoolsSnapshot> {
 			console.error('Failed to read DEX order levels:', error)
 			return null
 		}),
-		switches.length
-			? indexer(
+		Promise.all(
+			[...intervals].map(async ([base, split]) => {
+				const columns = split.map((interval, index) => {
+					const within = [
+						interval.from === null
+							? null
+							: `bucket >= '${sqlTime(interval.from * 1000)}'`,
+						interval.to === null
+							? null
+							: `bucket < '${sqlTime(interval.to * 1000)}'`,
+					].filter((condition) => condition !== null)
+					const month = within.length
+						? `sumIf(quote_volume, ${within.join(' AND ')})`
+						: 'sum(quote_volume)'
+					const day = `sumIf(quote_volume, ${[...within, `bucket >= '${windows.day}'`].join(' AND ')})`
+					return `toString(${day}) AS d${index}, toString(${month}) AS m${index}`
+				})
+				const [row] = await indexer(
 					chainId,
-					`SELECT token, ${volumeColumns(windows)} FROM dex_ohlc_1m
-					WHERE bucket >= '${windows.month}' AND (${switches
-						.map(
-							(entry) =>
-								`(token = '${entry.base}' AND bucket < '${sqlTime(entry.at * 1000)}')`,
-						)
-						.join(' OR ')})
-					GROUP BY token`,
+					`SELECT ${columns.join(', ')} FROM dex_ohlc_1m
+					WHERE token = '${base}' AND bucket >= '${windows.month}'`,
 				)
-			: Promise.resolve([]),
+				return [base, split, row] as const
+			}),
+		),
 	])
 
 	const usedTicks = new Map<Address, { bids: Set<number>; asks: Set<number> }>()
@@ -192,9 +216,18 @@ export async function getDexPools(): Promise<DexPoolsSnapshot> {
 	}
 
 	const totals = volumesByToken(volumeRows)
-	const beforeSwitch = volumesByToken(beforeSwitchRows)
-	const booksByBase = new Map<Address, Address[]>()
-	for (const pair of pairs) append(booksByBase, pair.base, pair.quote)
+	const splits = new Map(
+		splitRows.map(([base, split, row]) => [
+			base,
+			split.map((interval, index) => ({
+				quote: interval.quote,
+				raw: {
+					day: BigInt(String(row?.[`d${index}`] ?? 0)),
+					month: BigInt(String(row?.[`m${index}`] ?? 0)),
+				},
+			})),
+		]),
+	)
 
 	const valid = (tick: number) => tick >= Tick.minTick && tick <= Tick.maxTick
 	const entries = pairs.flatMap((pair, index) => {
@@ -238,20 +271,15 @@ export async function getDexPools(): Promise<DexPoolsSnapshot> {
 			bid: valid(book.bestBidTick) ? tickPrice(book.bestBidTick) : null,
 			ask: valid(book.bestAskTick) ? tickPrice(book.bestAskTick) : null,
 			liquidity: depths[index] ?? null,
-			volume: attributeVolume({
+			volume: volumeForBook({
 				quote: pair.quote,
 				routedQuote: base.quoteToken,
-				previousQuote: previousQuote({
-					updates: (updates.get(pair.base) ?? []).map((entry) => entry.quote),
-					books: booksByBase.get(pair.base) ?? [],
-					routedQuote: base.quoteToken,
-					nextQuote: base.nextQuoteToken,
-				}),
-				total: toVolume(totals.get(pair.base), base.token.decimals),
-				beforeSwitch: toVolume(
-					beforeSwitch.get(pair.base),
-					base.token.decimals,
-				),
+				intervals: (
+					splits.get(pair.base) ?? [{ quote: null, raw: totals.get(pair.base) }]
+				).map((interval) => ({
+					quote: interval.quote,
+					volume: toVolume(interval.raw, base.token.decimals) ?? emptyVolume,
+				})),
 			}),
 		}
 	})
