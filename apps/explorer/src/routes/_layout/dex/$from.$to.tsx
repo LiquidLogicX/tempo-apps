@@ -106,6 +106,7 @@ function DexRoutePage(): React.JSX.Element {
 		// Someone who opened this pair wants its swaps, verified or not.
 		{
 			path: query.data?.path.map((token) => token.address),
+			bases: query.data?.legs.map((leg) => leg.base.address),
 			unverified: true,
 		},
 		Boolean(query.data),
@@ -173,15 +174,6 @@ function DexRoutePage(): React.JSX.Element {
 					)}
 				</div>
 				<div className="flex flex-wrap items-center gap-2">
-					<Link
-						to="/dex/$from/$to"
-						params={{ from: search.to, to: search.from }}
-						search={{ amount: search.amount }}
-						className={headerButton}
-					>
-						<ArrowLeftRightIcon className="size-3.75" />
-						Reverse
-					</Link>
 					<CopyButton
 						value={() => window.location.href}
 						ariaLabel="Copy route link"
@@ -241,14 +233,28 @@ function DexRoutePage(): React.JSX.Element {
 								</ol>
 							)}
 							<div className="grid md:grid-cols-2">
-								<AmountInput
-									key={`${search.from}:${search.to}`}
-									amount={search.amount}
-									token={from}
-									inputError={snapshot.inputError}
-								/>
+								<div className="relative">
+									<AmountInput
+										key={`${search.from}:${search.to}`}
+										amount={search.amount}
+										token={from}
+										inputError={snapshot.inputError}
+									/>
+									{/* Sits on the divider: below the pay panel when stacked,
+									    and level with the amounts side by side. */}
+									<Link
+										to="/dex/$from/$to"
+										params={{ from: search.to, to: search.from }}
+										search={{ amount: search.amount }}
+										aria-label="Reverse route"
+										title="Reverse route"
+										className="absolute z-10 left-1/2 bottom-0 -translate-x-1/2 translate-y-1/2 md:left-auto md:bottom-auto md:right-0 md:top-[81px] md:translate-x-1/2 md:-translate-y-1/2 inline-flex size-9 items-center justify-center rounded-full border border-card-border bg-card text-secondary hover:text-primary hover:border-accent press-down"
+									>
+										<ArrowLeftRightIcon className="size-4 max-md:rotate-90" />
+									</Link>
+								</div>
 								<div
-									className="flex flex-col gap-4 p-[18px]"
+									className="flex flex-col gap-4 p-[18px] md:pl-14"
 									aria-live="polite"
 									aria-busy={query.isFetching}
 								>
@@ -463,7 +469,7 @@ export function AmountInput(props: AmountInput.Props): React.JSX.Element {
 	const error = validationError || (draft.trim() === amount ? inputError : null)
 
 	return (
-		<div className="flex flex-col gap-4 p-[18px] md:border-r border-b md:border-b-0 border-dashed border-card-border">
+		<div className="flex flex-col gap-4 p-[18px] md:pr-14 h-full md:border-r border-b md:border-b-0 border-dashed border-card-border">
 			<label htmlFor={amountId} className="copy-13 text-tertiary">
 				You pay
 			</label>

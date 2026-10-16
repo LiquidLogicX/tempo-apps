@@ -16,7 +16,8 @@ import { getBatchedClient } from '#wagmi.config'
 /** Calls per multicall; see `readContracts`. */
 const READ_CHUNK = 50
 
-const MAX_SWITCHES = 500
+/** Switches kept per base; only recent ones affect what is shown. */
+const MAX_SWITCHES = 50
 
 const quoteTokenUpdate = toEventSelector('QuoteTokenUpdate(address,address)')
 const hexAddress = /^0x[0-9a-f]{40}$/
@@ -83,10 +84,7 @@ export function list(values: Iterable<string>): string {
 	return [...values].map((value) => `'${value}'`).join(', ')
 }
 
-/**
- * Each base's quote-token switches, newest first. Switches are rare and only
- * recent ones affect what is shown, so the history is capped.
- */
+/** Each base's quote-token switches, newest first, capped per base. */
 export async function readQuoteSwitches(
 	chainId: number,
 	bases: Iterable<Address>,
@@ -95,7 +93,7 @@ export async function readQuoteSwitches(
 		chainId,
 		`SELECT address, topic2, toUnixTimestamp(block_timestamp) AS ts FROM logs
 		WHERE selector = '${quoteTokenUpdate}' AND address IN (${list(bases)})
-		ORDER BY block_num DESC, log_idx DESC LIMIT ${MAX_SWITCHES}`,
+		ORDER BY block_num DESC, log_idx DESC LIMIT ${MAX_SWITCHES} BY address`,
 	)
 	const switches = new Map<Address, { quote: Address; at: number }[]>()
 	for (const row of rows) {

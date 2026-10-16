@@ -59,6 +59,8 @@ beforeEach(() => {
 		query(new URL(url).searchParams.get('sql') ?? ''),
 	)
 	query.mockImplementation(async (sql: string) => {
+		// The indexer is one block behind the RPC's 100.
+		if (sql.includes('FROM blocks')) return rows(['head'], [[99]])
 		if (sql.includes('FROM dex_pair_liquidity')) return rows(['base'], [[USDT]])
 		if (sql.includes('FROM dex_pairs'))
 			return rows(
@@ -174,10 +176,31 @@ describe('Stablecoin DEX pairs', () => {
 		).toEqual([{ from: null, to: null, quote: null }])
 	})
 
-	it('finds the quote before the first switch from the only other book', () => {
-		const switches = [{ quote: OUSD as Address }]
-		expect(originalQuote([PATH, OUSD], switches)).toBe(PATH)
-		expect(originalQuote([PATH, USDT, OUSD], switches)).toBeNull()
+	it('finds the quote a base had before its first switch', () => {
+		const once = [{ quote: OUSD as Address }]
+		expect(
+			originalQuote({ books: [PATH, OUSD], switches: once, nextQuote: OUSD }),
+		).toBe(PATH)
+		// A staged next quote's book is not an earlier one.
+		expect(
+			originalQuote({
+				books: [PATH, OUSD, USDC],
+				switches: once,
+				nextQuote: USDC,
+			}),
+		).toBe(PATH)
+		// PATH -> OUSD -> PATH: the token returned to its original quote.
+		const back = [{ quote: PATH as Address }, { quote: OUSD as Address }]
+		expect(
+			originalQuote({ books: [PATH, OUSD], switches: back, nextQuote: PATH }),
+		).toBe(PATH)
+		expect(
+			originalQuote({
+				books: [PATH, USDT, OUSD],
+				switches: once,
+				nextQuote: OUSD,
+			}),
+		).toBeNull()
 	})
 
 	it('values bids at their tick price in quote decimals', () => {
@@ -238,6 +261,8 @@ describe('Stablecoin DEX pairs', () => {
 
 	it('reads the routed book by tick and splits volume across books', async () => {
 		const snapshot = await getDexPools()
+		// Book reads are pinned to the block the indexer has reached.
+		expect(snapshot.blockNumber).toBe('99')
 		// Verified tokens are discovered even outside the rankings.
 		expect(
 			query.mock.calls.some(

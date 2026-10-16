@@ -18,7 +18,11 @@ const LIVE_SCOPE = 'dex-swaps'
 /** Recent swaps, or only those between a route's two ends. */
 export function useDexSwaps(
 	live: boolean,
-	input: { path?: TokenAddress[] | undefined; unverified?: boolean },
+	input: {
+		path?: TokenAddress[] | undefined
+		bases?: TokenAddress[] | undefined
+		unverified?: boolean
+	},
 	enabled = true,
 ) {
 	return useQuery({ ...dexSwapsQueryOptions(live, input), enabled })

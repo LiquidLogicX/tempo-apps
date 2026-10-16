@@ -15,13 +15,18 @@ export function dexPoolsQueryOptions() {
 
 export function dexSwapsQueryOptions(
 	live: boolean,
-	input: { path?: Address[] | undefined; unverified?: boolean | undefined },
+	input: {
+		path?: Address[] | undefined
+		bases?: Address[] | undefined
+		unverified?: boolean | undefined
+	},
 ) {
 	return queryOptions({
 		queryKey: [
 			'dex-swaps',
 			getTempoChain().id,
 			input.path ?? null,
+			input.bases ?? null,
 			Boolean(input.unverified),
 		],
 		queryFn: () => fetchDexSwaps({ data: input }),

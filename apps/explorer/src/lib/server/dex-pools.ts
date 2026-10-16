@@ -89,7 +89,7 @@ export async function getDexPools(): Promise<DexPoolsSnapshot> {
 		month: sqlTime(now - 30 * 86_400_000),
 	}
 
-	const [byBalance, byVolume, blockNumber, verified] = await Promise.all([
+	const [byBalance, byVolume, latest, head, verified] = await Promise.all([
 		indexer(
 			chainId,
 			`SELECT base FROM dex_pair_liquidity WHERE liquidity > 0
@@ -101,8 +101,16 @@ export async function getDexPools(): Promise<DexPoolsSnapshot> {
 			GROUP BY token ORDER BY sum(quote_volume) DESC LIMIT ${BASES_BY_VOLUME}`,
 		),
 		client.getBlockNumber(),
+		indexer(chainId, 'SELECT max(num) AS head FROM blocks'),
 		readVerified(chainId),
 	])
+	// Depth only reads levels the indexer knows of, so the book is read at a
+	// block the indexer has reached rather than the chain head.
+	const indexed = Number(head[0]?.head)
+	const blockNumber =
+		Number.isSafeInteger(indexed) && indexed > 0 && BigInt(indexed) < latest
+			? BigInt(indexed)
+			: latest
 	// Verified tokens are always included, so spam can't crowd them out of
 	// the rankings.
 	const bases = new Set(
@@ -140,21 +148,9 @@ export async function getDexPools(): Promise<DexPoolsSnapshot> {
 	})
 	const booksByBase = new Map<Address, Address[]>()
 	for (const pair of pairs) append(booksByBase, pair.base, pair.quote)
-	// A base that switched quote tokens inside the window split its fills
-	// between books; each stretch between switches is summed separately.
-	const intervals = new Map(
-		[...updates].flatMap(([base, history]) => {
-			const split = volumeIntervals({
-				switches: history,
-				windowStart: (now - 30 * 86_400_000) / 1000,
-				original: originalQuote(booksByBase.get(base) ?? [], history),
-			})
-			return split.length > 1 ? [[base, split] as const] : []
-		}),
-	)
 
 	const tokens = [...new Set(pairs.flatMap((pair) => [pair.base, pair.quote]))]
-	const [metadata, books, levelRows, splitRows] = await Promise.all([
+	const [metadata, books, levelRows] = await Promise.all([
 		readTokens(chainId, tokens, blockNumber),
 		readContracts(
 			pairs.map((pair) => ({
@@ -178,31 +174,6 @@ export async function getDexPools(): Promise<DexPoolsSnapshot> {
 			console.error('Failed to read DEX order levels:', error)
 			return null
 		}),
-		Promise.all(
-			[...intervals].map(async ([base, split]) => {
-				const columns = split.map((interval, index) => {
-					const within = [
-						interval.from === null
-							? null
-							: `bucket >= '${sqlTime(interval.from * 1000)}'`,
-						interval.to === null
-							? null
-							: `bucket < '${sqlTime(interval.to * 1000)}'`,
-					].filter((condition) => condition !== null)
-					const month = within.length
-						? `sumIf(quote_volume, ${within.join(' AND ')})`
-						: 'sum(quote_volume)'
-					const day = `sumIf(quote_volume, ${[...within, `bucket >= '${windows.day}'`].join(' AND ')})`
-					return `toString(${day}) AS d${index}, toString(${month}) AS m${index}`
-				})
-				const [row] = await indexer(
-					chainId,
-					`SELECT ${columns.join(', ')} FROM dex_ohlc_1m
-					WHERE token = '${base}' AND bucket >= '${windows.month}'`,
-				)
-				return [base, split, row] as const
-			}),
-		),
 	])
 
 	const usedTicks = new Map<Address, { bids: Set<number>; asks: Set<number> }>()
@@ -216,6 +187,81 @@ export async function getDexPools(): Promise<DexPoolsSnapshot> {
 	}
 
 	const totals = volumesByToken(volumeRows)
+	// A base that switched quote tokens inside the window split its fills
+	// between books; each stretch between switches is summed separately.
+	const intervals = new Map(
+		[...updates].flatMap(([base, history]) => {
+			const split = volumeIntervals({
+				switches: history,
+				windowStart: (now - 30 * 86_400_000) / 1000,
+				original: originalQuote({
+					books: booksByBase.get(base) ?? [],
+					switches: history,
+					nextQuote: metadata.get(base)?.nextQuoteToken ?? null,
+				}),
+			})
+			return split.length > 1 ? [[base, split] as const] : []
+		}),
+	)
+	const splitReads = Promise.all(
+		[...intervals].map(async ([base, split]) => {
+			const columns = split.map((interval, index) => {
+				const within = [
+					interval.from === null
+						? null
+						: `bucket >= '${sqlTime(interval.from * 1000)}'`,
+					interval.to === null
+						? null
+						: `bucket < '${sqlTime(interval.to * 1000)}'`,
+				].filter((condition) => condition !== null)
+				const month = within.length
+					? `sumIf(quote_volume, ${within.join(' AND ')})`
+					: 'sum(quote_volume)'
+				const day = `sumIf(quote_volume, ${[...within, `bucket >= '${windows.day}'`].join(' AND ')})`
+				return `toString(${day}) AS d${index}, toString(${month}) AS m${index}`
+			})
+			const [row] = await indexer(
+				chainId,
+				`SELECT ${columns.join(', ')} FROM dex_ohlc_1m
+					WHERE token = '${base}' AND bucket >= '${windows.month}'`,
+			)
+			return [base, split, row] as const
+		}),
+	)
+	const valid = (tick: number) => tick >= Tick.minTick && tick <= Tick.maxTick
+	const entries = pairs.flatMap((pair, index) => {
+		const base = metadata.get(pair.base)
+		const quote = metadata.get(pair.quote)
+		const book = books[index]
+		if (!base || !quote || book?.status !== 'success') return []
+		return [{ pair, base, quote, book: book.result }]
+	})
+	// Only the routed book is listed; `getTickLevel` can read no other.
+	const [depths, splitRows] = await Promise.all([
+		Promise.all(
+			entries.map((entry) =>
+				bookStatus(entry.pair.quote, entry.base) === 'active'
+					? orNull(
+							readDepth({
+								base: entry.base.token,
+								quote: entry.quote.token,
+								bestBidTick: entry.book.bestBidTick,
+								bestAskTick: entry.book.bestAskTick,
+								used: levelRows
+									? (usedTicks.get(entry.pair.base) ?? {
+											bids: new Set(),
+											asks: new Set(),
+										})
+									: undefined,
+								blockNumber,
+							}),
+							DEPTH_DEADLINE,
+						)
+					: null,
+			),
+		),
+		splitReads,
+	])
 	const splits = new Map(
 		splitRows.map(([base, split, row]) => [
 			base,
@@ -227,38 +273,6 @@ export async function getDexPools(): Promise<DexPoolsSnapshot> {
 				},
 			})),
 		]),
-	)
-
-	const valid = (tick: number) => tick >= Tick.minTick && tick <= Tick.maxTick
-	const entries = pairs.flatMap((pair, index) => {
-		const base = metadata.get(pair.base)
-		const quote = metadata.get(pair.quote)
-		const book = books[index]
-		if (!base || !quote || book?.status !== 'success') return []
-		return [{ pair, base, quote, book: book.result }]
-	})
-	// Only the routed book is listed; `getTickLevel` can read no other.
-	const depths = await Promise.all(
-		entries.map((entry) =>
-			bookStatus(entry.pair.quote, entry.base) === 'active'
-				? orNull(
-						readDepth({
-							base: entry.base.token,
-							quote: entry.quote.token,
-							bestBidTick: entry.book.bestBidTick,
-							bestAskTick: entry.book.bestAskTick,
-							used: levelRows
-								? (usedTicks.get(entry.pair.base) ?? {
-										bids: new Set(),
-										asks: new Set(),
-									})
-								: undefined,
-							blockNumber,
-						}),
-						DEPTH_DEADLINE,
-					)
-				: null,
-		),
 	)
 
 	const pools = entries.map(({ pair, base, quote, book }, index): DexPool => {

@@ -104,16 +104,29 @@ export function sideValue(
 	return total
 }
 
-/** The quote a base had before its first switch: its one other book. */
-export function originalQuote(
-	books: readonly Address[],
-	switches: readonly { quote: Address }[],
-): Address | null {
-	const targets = switches.map((entry) => entry.quote)
-	const others = books.filter(
-		(quote) => !targets.some((target) => equal(quote, target)),
+/**
+ * The quote a base had before its first switch: its book other than the
+ * first switch's target and a staged next quote. A token can return to an
+ * earlier quote, so later targets are only ruled out to break a tie.
+ */
+export function originalQuote(input: {
+	books: readonly Address[]
+	/** Every switch, newest first. */
+	switches: readonly { quote: Address }[]
+	nextQuote: Address | null
+}): Address | null {
+	const first = input.switches[input.switches.length - 1]?.quote
+	const current = input.switches[0]?.quote
+	const staged = equal(input.nextQuote, current) ? null : input.nextQuote
+	const candidates = input.books.filter(
+		(quote) => !equal(quote, first) && !equal(quote, staged),
 	)
-	return others.length === 1 ? (others[0] ?? null) : null
+	if (candidates.length === 1) return candidates[0] ?? null
+	const later = input.switches.slice(0, -1)
+	const narrowed = candidates.filter(
+		(quote) => !later.some((entry) => equal(entry.quote, quote)),
+	)
+	return narrowed.length === 1 ? (narrowed[0] ?? null) : null
 }
 
 /** Fills between two quote switches; null bounds are open. */

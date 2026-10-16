@@ -65,9 +65,9 @@ export function orderAt(
  */
 export function quoteAt(
 	switches: readonly { quote: Address; at: number }[],
-	original: Address,
+	original: Address | null,
 	at: number,
-): Address {
+): Address | null {
 	return switches.find((entry) => entry.at <= at)?.quote ?? original
 }
 
