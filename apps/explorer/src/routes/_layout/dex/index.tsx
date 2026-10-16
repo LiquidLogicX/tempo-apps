@@ -1,16 +1,11 @@
 import { useQuery } from '@tanstack/react-query'
-import {
-	createFileRoute,
-	Link,
-	stripSearchParams,
-} from '@tanstack/react-router'
+import { createFileRoute, stripSearchParams } from '@tanstack/react-router'
 import { useMemo, useState } from 'react'
 import type * as React from 'react'
 import { DataGrid } from '#comps/DataGrid'
 import { Sections } from '#comps/Sections'
 import { TokenIcon } from '#comps/TokenIcon'
 import { cx } from '#lib/css'
-import { defaultDexRoute } from '#lib/dex-route'
 import {
 	type DexPool,
 	type DexPoolSort,
@@ -24,7 +19,6 @@ import {
 import { PriceFormatter } from '#lib/formatting'
 import { useMediaQuery } from '#lib/hooks'
 import { dexPoolsQueryOptions } from '#lib/queries/dex-pools'
-import ArrowLeftRightIcon from '~icons/lucide/arrow-left-right'
 import SearchIcon from '~icons/lucide/search'
 
 export const Route = createFileRoute('/_layout/dex/')({
@@ -107,19 +101,9 @@ function DexPoolsPage(): React.JSX.Element {
 
 	return (
 		<div className="flex flex-col gap-6 px-4 pt-8 sm:pt-20 pb-16 max-w-[1200px] mx-auto w-full">
-			<div className="flex flex-wrap items-center justify-between gap-4">
-				<h1 className="text-[24px] sm:text-[32px] leading-tight tracking-[-0.02em] font-semibold text-primary">
-					Stablecoin DEX
-				</h1>
-				<Link
-					to="/dex/$from/$to"
-					params={{ from: defaultDexRoute.from, to: defaultDexRoute.to }}
-					className="inline-flex h-7 items-center gap-1.5 rounded-[7px] border border-card-border px-2.5 copy-13 text-secondary hover:text-primary press-down"
-				>
-					<ArrowLeftRightIcon className="size-3.5" />
-					Quote a swap
-				</Link>
-			</div>
+			<h1 className="text-[24px] sm:text-[32px] leading-tight tracking-[-0.02em] font-semibold text-primary">
+				Stablecoin DEX
+			</h1>
 
 			<section
 				aria-label="Totals"
