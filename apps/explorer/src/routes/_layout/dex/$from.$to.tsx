@@ -32,7 +32,6 @@ import { getTempoChain } from '#wagmi.config'
 import ArrowRightIcon from '~icons/lucide/arrow-right'
 import ArrowLeftRightIcon from '~icons/lucide/arrow-left-right'
 import ChevronLeftIcon from '~icons/lucide/chevron-left'
-import ChevronDownIcon from '~icons/lucide/chevron-down'
 import RefreshCwIcon from '~icons/lucide/refresh-cw'
 
 export const Route = createFileRoute('/_layout/dex/$from/$to')({
@@ -513,8 +512,6 @@ function LegRow(props: {
 	leg: DexLeg
 }): React.JSX.Element {
 	const { blockNumber, index, leg } = props
-	const [open, setOpen] = useState(false)
-	const depthId = useId()
 	const depth = useQuery({
 		...dexLegDepthQueryOptions({
 			from: leg.from.address,
@@ -522,7 +519,7 @@ function LegRow(props: {
 			tick: leg.bestTick ?? 0,
 			blockNumber,
 		}),
-		enabled: open && leg.bestTick !== null,
+		enabled: leg.bestTick !== null,
 	})
 	const spread =
 		leg.bid !== null && leg.ask !== null
@@ -562,31 +559,13 @@ function LegRow(props: {
 								</div>
 							))}
 						</dl>
-						{leg.bestTick !== null && (
-							<button
-								type="button"
-								aria-expanded={open}
-								aria-controls={depthId}
-								onClick={() => setOpen(!open)}
-								className="inline-flex h-7 items-center gap-1.5 rounded-[7px] border border-card-border px-2.5 copy-13 text-secondary hover:text-primary cursor-pointer press-down"
-							>
-								Depth
-								<ChevronDownIcon
-									className={cx(
-										'size-3.5 transition-transform duration-150',
-										open && 'rotate-180',
-									)}
-								/>
-							</button>
-						)}
 					</div>
 				) : (
 					<span className="copy-13 text-tertiary">Book not created</span>
 				)}
 			</div>
-			{open && (
+			{leg.bestTick !== null && (
 				<div
-					id={depthId}
 					className="border-t border-dashed border-card-border"
 					aria-live="polite"
 				>
