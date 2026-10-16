@@ -1,6 +1,8 @@
 import { createServerFn } from '@tanstack/react-start'
 import { type Address, formatUnits, type Hex } from 'viem'
 import { Addresses } from 'viem/tempo'
+import * as z from 'zod/mini'
+import { append } from '#lib/dex-pools'
 import {
 	type DexFill,
 	type DexOrderState,
@@ -20,6 +22,7 @@ import {
 } from '#lib/server/dex-indexer'
 import { withDeadline } from '#lib/server/dex-route'
 import { withImmutableDataCache } from '#lib/server/immutable-data-cache'
+import { zAddress } from '#lib/zod'
 import { getBatchedClient, getTempoChain } from '#wagmi.config'
 
 /** Recent fills to assemble; a swap is one or more fills. */
@@ -57,13 +60,21 @@ function orderStates(rows: Row[]): [string, DexOrderState][] {
  * feed, which prices every fill against a base's first quote token and so
  * splits routes through a token that has since switched quote tokens.
  */
-export async function getDexSwaps(): Promise<DexSwap[]> {
+export async function getDexSwaps(
+	input: DexSwapsInput = {},
+): Promise<DexSwap[]> {
 	const chainId = getTempoChain().id
+	const path = input.path
+	// A pair's swaps can fill on any book along its route.
+	const onPath = path
+		? `AND "orderId" IN (SELECT "orderId" FROM dex_orders
+			WHERE address = '${stablecoinDex}' AND token IN (${list(path)}))`
+		: ''
 	const fillRows = await indexer(
 		chainId,
 		`SELECT block_num, log_idx, tx_hash, toUnixTimestamp(block_timestamp) AS ts,
 		toString("orderId") AS id, taker, toString("amountFilled") AS amount
-		FROM dex_fills WHERE address = '${stablecoinDex}'
+		FROM dex_fills WHERE address = '${stablecoinDex}' ${onPath}
 		ORDER BY block_num DESC, log_idx DESC LIMIT ${FILLS}`,
 	)
 	const fills = fillRows.flatMap((row): DexFill[] => {
@@ -105,7 +116,7 @@ export async function getDexSwaps(): Promise<DexSwap[]> {
 	])
 	const states = new Map<string, DexOrderState[]>()
 	for (const [id, state] of [...orderStates(placed), ...orderStates(flipped)])
-		states.set(id, [...(states.get(id) ?? []), state])
+		append(states, id, state)
 
 	const bases = new Set(
 		[...states.values()].flatMap((list) => list.map((state) => state.token)),
@@ -122,7 +133,7 @@ export async function getDexSwaps(): Promise<DexSwap[]> {
 	for (const row of pairRows) {
 		const base = addressOf(row.base)
 		const quote = addressOf(row.quote)
-		if (base && quote) books.set(base, [...(books.get(base) ?? []), quote])
+		if (base && quote) append(books, base, quote)
 	}
 	const tokens = await readTokens(
 		chainId,
@@ -160,7 +171,14 @@ export async function getDexSwaps(): Promise<DexSwap[]> {
 			},
 		]
 	})
+	const [first, last] = path ? [path[0], path[path.length - 1]] : []
 	return groupSwaps(hops)
+		.filter(
+			(row) =>
+				!path ||
+				(row.from === first && row.to === last) ||
+				(row.from === last && row.to === first),
+		)
 		.flatMap((row): DexSwap[] => {
 			const from = tokens.get(row.from)?.token
 			const to = tokens.get(row.to)?.token
@@ -181,13 +199,27 @@ export async function getDexSwaps(): Promise<DexSwap[]> {
 		.slice(0, SWAPS)
 }
 
-export const fetchDexSwaps = createServerFn({ method: 'GET' }).handler(
-	async (): Promise<DexSwap[]> => {
+const inputSchema = z.object({
+	path: z.optional(
+		z
+			.array(zAddress({ lowercase: true }))
+			.check(z.minLength(2), z.maxLength(16)),
+	),
+})
+
+/** Optionally only swaps between a route's two ends, in either direction. */
+export type DexSwapsInput = z.infer<typeof inputSchema>
+
+export const fetchDexSwaps = createServerFn({ method: 'GET' })
+	.inputValidator((input: DexSwapsInput | undefined) =>
+		inputSchema.parse(input ?? {}),
+	)
+	.handler(async ({ data }): Promise<DexSwap[]> => {
 		try {
 			return await withImmutableDataCache({
-				key: `dex-swaps:v1:${getTempoChain().id}`,
+				key: `dex-swaps:v1:${getTempoChain().id}:${data.path?.join(',') ?? 'all'}`,
 				ttlSeconds: 5,
-				load: () => withDeadline(getDexSwaps()),
+				load: () => withDeadline(getDexSwaps(data)),
 				shouldCache: (swaps) => swaps.length > 0,
 			})
 		} catch (error) {
@@ -196,5 +228,4 @@ export const fetchDexSwaps = createServerFn({ method: 'GET' }).handler(
 				'Stablecoin DEX swaps are temporarily unavailable. Please try again.',
 			)
 		}
-	},
-)
+	})

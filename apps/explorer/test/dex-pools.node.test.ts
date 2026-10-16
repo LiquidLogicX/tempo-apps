@@ -18,9 +18,11 @@ const { query, multicall } = vi.hoisted(() => ({
 	query: vi.fn(),
 	multicall: vi.fn(),
 }))
-vi.mock('#lib/server/tempo-api', () => ({
-	api: { v1: { indexer: { query: { $get: query } } } },
+vi.mock('#lib/server/env', () => ({
+	tempoApi: { url: 'https://api.test', headers: undefined },
+	tempoApiUrl: 'https://api.test',
 }))
+vi.mock('#lib/server/network', () => ({ getChainBackend: () => undefined }))
 vi.mock('#lib/server/verified-tokens', () => ({
 	getVerifiedTokenAddresses: async () =>
 		new Set([USDT, OUSD, Addresses.pathUsd]),
@@ -51,43 +53,43 @@ type Contract = {
 
 beforeEach(() => {
 	vi.resetAllMocks()
-	query.mockImplementation(
-		async ({ query: { sql } }: { query: { sql: string } }) => {
-			if (sql.includes('FROM dex_pair_liquidity'))
-				return rows(['base'], [[USDT]])
-			if (sql.includes('FROM dex_pairs'))
-				return rows(
-					['key', 'base', 'quote'],
-					[
-						[RETIRED, USDT, PATH],
-						[ACTIVE, USDT, OUSD],
-					],
-				)
-			if (sql.includes('topic2'))
-				return rows(
-					['address', 'topic2', 'ts'],
-					[[USDT, `0x${'0'.repeat(24)}${OUSD.slice(2)}`, SWITCH_AT]],
-				)
-			if (sql.includes('UNION ALL'))
-				return rows(
-					['token', 'bid', 'tick'],
-					[
-						[USDT, 1, -10],
-						[USDT, 1, -20],
-						// Above the best bid, so it cannot hold a resting bid.
-						[USDT, 1, 30],
-						[USDT, 0, 10],
-					],
-				)
-			// Fills before the switch went to the pathUSD book.
-			if (sql.includes('bucket <'))
-				return rows(['token', 'day', 'month'], [[USDT, '0', '4000000']])
-			if (sql.includes('FROM dex_ohlc_1m') && sql.includes('token IN'))
-				return rows(['token', 'day', 'month'], [[USDT, '1000000', '5000000']])
-			if (sql.includes('FROM dex_ohlc_1m')) return rows(['token'], [[USDT]])
-			throw new Error(`Unexpected query: ${sql}`)
-		},
+	vi.stubGlobal('fetch', async (url: URL) =>
+		query(new URL(url).searchParams.get('sql') ?? ''),
 	)
+	query.mockImplementation(async (sql: string) => {
+		if (sql.includes('FROM dex_pair_liquidity')) return rows(['base'], [[USDT]])
+		if (sql.includes('FROM dex_pairs'))
+			return rows(
+				['key', 'base', 'quote'],
+				[
+					[RETIRED, USDT, PATH],
+					[ACTIVE, USDT, OUSD],
+				],
+			)
+		if (sql.includes('topic2'))
+			return rows(
+				['address', 'topic2', 'ts'],
+				[[USDT, `0x${'0'.repeat(24)}${OUSD.slice(2)}`, SWITCH_AT]],
+			)
+		if (sql.includes('UNION ALL'))
+			return rows(
+				['token', 'bid', 'tick'],
+				[
+					[USDT, 1, -10],
+					[USDT, 1, -20],
+					// Above the best bid, so it cannot hold a resting bid.
+					[USDT, 1, 30],
+					[USDT, 0, 10],
+				],
+			)
+		// Fills before the switch went to the pathUSD book.
+		if (sql.includes('bucket <'))
+			return rows(['token', 'day', 'month'], [[USDT, '0', '4000000']])
+		if (sql.includes('FROM dex_ohlc_1m') && sql.includes('token IN'))
+			return rows(['token', 'day', 'month'], [[USDT, '1000000', '5000000']])
+		if (sql.includes('FROM dex_ohlc_1m')) return rows(['token'], [[USDT]])
+		throw new Error(`Unexpected query: ${sql}`)
+	})
 	multicall.mockImplementation(async ({ contracts }) =>
 		contracts.map(({ address, functionName, args = [] }: Contract) => {
 			const success = (result: unknown) => ({ status: 'success', result })
@@ -146,6 +148,10 @@ describe('Stablecoin DEX pairs', () => {
 			input.beforeSwitch,
 		)
 		expect(attributeVolume({ ...input, quote: USDT }).month).toBe(0)
+		// An unknown earlier book leaves pre-switch fills on the routed book.
+		expect(
+			attributeVolume({ ...input, previousQuote: null, quote: OUSD }),
+		).toEqual(input.total)
 	})
 
 	it('finds the previous quote from switches or the only other book', () => {
@@ -190,6 +196,13 @@ describe('Stablecoin DEX pairs', () => {
 			3,
 			null,
 		])
+		const unreadable = {
+			liquidity: { total: 0, partial: true },
+			volume: { day: 0 },
+		} as DexPool
+		expect(sortPools([unreadable, pool(2)], 'liquidity', 'asc')[0]).not.toBe(
+			unreadable,
+		)
 		expect(spreadBps(0.9999, 1.0001)).toBeCloseTo(2)
 		expect(spreadBps(null, 1)).toBeNull()
 	})
@@ -212,6 +225,12 @@ describe('Stablecoin DEX pairs', () => {
 
 	it('reads the routed book by tick and splits volume across books', async () => {
 		const snapshot = await getDexPools()
+		// Verified tokens are discovered even outside the rankings.
+		expect(
+			query.mock.calls.some(
+				([sql]) => sql.includes('FROM dex_pairs') && sql.includes(OUSD),
+			),
+		).toBe(true)
 		const active = snapshot.pools.find((pool) => pool.key === ACTIVE)
 		const retired = snapshot.pools.find((pool) => pool.key === RETIRED)
 

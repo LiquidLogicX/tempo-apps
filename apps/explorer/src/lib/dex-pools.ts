@@ -48,6 +48,17 @@ export type DexPoolsSnapshot = {
 
 export const emptyVolume: DexPoolVolume = { day: 0, month: 0 }
 
+/** Adds to a keyed list in place. */
+export function append<key, value>(
+	map: Map<key, value[]>,
+	key: key,
+	value: value,
+): void {
+	const list = map.get(key)
+	if (list) list.push(value)
+	else map.set(key, [value])
+}
+
 const equal = (a: string | null | undefined, b: string | null | undefined) =>
 	Boolean(a && b && a.toLowerCase() === b.toLowerCase())
 
@@ -106,7 +117,9 @@ export function attributeVolume(input: {
 	beforeSwitch: DexPoolVolume | undefined
 }): DexPoolVolume {
 	const total = input.total ?? emptyVolume
-	const before = input.beforeSwitch ?? emptyVolume
+	// With no known earlier book, pre-switch fills stay with the routed book
+	// rather than dropping out of every total.
+	const before = (input.previousQuote && input.beforeSwitch) || emptyVolume
 	if (equal(input.quote, input.routedQuote))
 		return {
 			day: Math.max(0, total.day - before.day),
@@ -156,7 +169,12 @@ export const defaultDexPoolsSearch: DexPoolsSearch = {
 }
 
 function sortValue(pool: DexPool, sort: DexPoolSort): number | null {
-	if (sort === 'liquidity') return pool.liquidity?.total ?? null
+	// A partial zero is unreadable, not empty, and is shown as unknown.
+	if (sort === 'liquidity')
+		return !pool.liquidity ||
+			(pool.liquidity.partial && pool.liquidity.total === 0)
+			? null
+			: pool.liquidity.total
 	if (sort === 'spread') return spreadBps(pool.bid, pool.ask)
 	return pool.volume[sort]
 }

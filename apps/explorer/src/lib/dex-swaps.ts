@@ -1,5 +1,5 @@
 import type { Address, Hex } from 'viem'
-import type { DexPoolToken } from '#lib/dex-pools'
+import { append, type DexPoolToken } from '#lib/dex-pools'
 
 export type DexSwap = {
 	id: string
@@ -129,7 +129,7 @@ export function groupSwaps(
 	const groups = new Map<string, (typeof hops)[number][]>()
 	for (const hop of hops) {
 		const key = `${hop.transactionHash}:${hop.taker}`
-		groups.set(key, [...(groups.get(key) ?? []), hop])
+		append(groups, key, hop)
 	}
 	return [...groups.values()].flatMap((group) => {
 		const first = group.reduce((a, b) => (b.log < a.log ? b : a))
@@ -163,7 +163,7 @@ export function groupSwaps(
 		const edges = new Map<string, typeof group>()
 		for (const hop of group) {
 			const key = `${hop.from}:${hop.to}`
-			edges.set(key, [...(edges.get(key) ?? []), hop])
+			append(edges, key, hop)
 		}
 		return [...edges.values()].map((edge) => {
 			const [hop] = edge as [(typeof group)[number]]

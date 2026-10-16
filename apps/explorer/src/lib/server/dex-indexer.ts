@@ -1,4 +1,3 @@
-import { parseResponse } from 'hono/client'
 import {
 	type Address,
 	BaseError,
@@ -9,12 +8,15 @@ import {
 } from 'viem'
 import { Addresses } from 'viem/tempo'
 import { Abis } from '#lib/abis'
-import type { DexPoolToken } from '#lib/dex-pools'
-import { api } from '#lib/server/tempo-api'
+import { append, type DexPoolToken } from '#lib/dex-pools'
+import { tempoApi, tempoApiUrl } from '#lib/server/env'
+import { getChainBackend } from '#lib/server/network'
 import { getBatchedClient } from '#wagmi.config'
 
 /** Calls per multicall; see `readContracts`. */
 const READ_CHUNK = 50
+
+const MAX_SWITCHES = 500
 
 const quoteTokenUpdate = toEventSelector('QuoteTokenUpdate(address,address)')
 const hexAddress = /^0x[0-9a-f]{40}$/
@@ -26,25 +28,43 @@ export const dex = {
 
 export type Row = Record<string, unknown>
 
-/** Runs SQL against the indexer; `signature` exposes a decoded event table. */
+/**
+ * Runs SQL against the chain's indexer: a devnet or zone build's own tidx
+ * when it has one, otherwise the Tempo API's. `signature` exposes a decoded
+ * event table.
+ */
 export async function indexer(
 	chainId: number,
 	sql: string,
 	signature?: string,
 ): Promise<Row[]> {
-	const response = await api.v1.indexer.query.$get({
-		query: {
-			chainId: String(chainId),
-			engine: 'clickhouse',
-			sql,
-			...(signature ? { signature } : {}),
+	const backend = getChainBackend(chainId, 'tidx')
+	const url = new URL(`${backend?.url ?? `${tempoApiUrl}/v1/indexer`}/query`)
+	url.search = new URLSearchParams({
+		sql,
+		chainId: String(chainId),
+		engine: 'clickhouse',
+		...(signature ? { signature } : {}),
+	}).toString()
+	const response = await fetch(url, {
+		headers: {
+			Accept: 'application/json',
+			...(backend?.headers ?? tempoApi.headers),
 		},
 	})
-	if (response.status === 422)
-		throw new Error(`Indexer query rejected: ${(await response.json()).error}`)
-	const result = await parseResponse(response)
+	const result = (await response.json().catch(() => null)) as {
+		ok?: boolean
+		columns?: string[]
+		rows?: unknown[][]
+		error?: string
+	} | null
+	const columns = result?.columns
+	if (!response.ok || !result?.ok || !columns || !result.rows)
+		throw new Error(
+			`Indexer query failed (${response.status}): ${result?.error ?? 'no result'}`,
+		)
 	return result.rows.map((values) =>
-		Object.fromEntries(result.columns.map((name, i) => [name, values[i]])),
+		Object.fromEntries(columns.map((name, i) => [name, values[i]])),
 	)
 }
 
@@ -63,7 +83,10 @@ export function list(values: Iterable<string>): string {
 	return [...values].map((value) => `'${value}'`).join(', ')
 }
 
-/** Each base's quote-token switches, newest first. */
+/**
+ * Each base's quote-token switches, newest first. Switches are rare and only
+ * recent ones affect what is shown, so the history is capped.
+ */
 export async function readQuoteSwitches(
 	chainId: number,
 	bases: Iterable<Address>,
@@ -72,17 +95,14 @@ export async function readQuoteSwitches(
 		chainId,
 		`SELECT address, topic2, toUnixTimestamp(block_timestamp) AS ts FROM logs
 		WHERE selector = '${quoteTokenUpdate}' AND address IN (${list(bases)})
-		ORDER BY block_num DESC, log_idx DESC`,
+		ORDER BY block_num DESC, log_idx DESC LIMIT ${MAX_SWITCHES}`,
 	)
 	const switches = new Map<Address, { quote: Address; at: number }[]>()
 	for (const row of rows) {
 		const base = addressOf(row.address)
 		const quote = addressOf(`0x${String(row.topic2).slice(-40)}`)
 		if (!base || !quote) continue
-		switches.set(base, [
-			...(switches.get(base) ?? []),
-			{ quote, at: Number(row.ts) },
-		])
+		append(switches, base, { quote, at: Number(row.ts) })
 	}
 	return switches
 }
@@ -91,6 +111,13 @@ export type TokenState = {
 	token: DexPoolToken
 	quoteToken: Address
 	nextQuoteToken: Address
+}
+
+/** Lowercased verified token addresses; empty when the registry is down. */
+export function readVerified(chainId: number): Promise<Set<string>> {
+	return import('#lib/server/verified-tokens').then((module) =>
+		module.getVerifiedTokenAddresses(chainId),
+	)
 }
 
 /** Symbol, decimals and quote tokens, flagged against the verified list. */
@@ -108,9 +135,7 @@ export async function readTokens(
 			),
 			blockNumber,
 		),
-		import('#lib/server/verified-tokens').then((module) =>
-			module.getVerifiedTokenAddresses(chainId),
-		),
+		readVerified(chainId),
 	])
 	const tokens = new Map<Address, TokenState>()
 	addresses.forEach((address, index) => {
@@ -128,9 +153,8 @@ export async function readTokens(
 				address,
 				symbol: String(symbol.result),
 				decimals: Number(decimals.result),
-				// An empty verified list means the registry was unreachable; flag
-				// nothing rather than hiding every pair as unverified.
-				verified: verified.size === 0 || verified.has(address),
+				// Fail closed: an unreachable registry flags nothing as verified.
+				verified: verified.has(address),
 			},
 			quoteToken: lower(quoteToken),
 			nextQuoteToken: lower(nextQuoteToken),

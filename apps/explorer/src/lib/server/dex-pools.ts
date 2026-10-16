@@ -2,6 +2,7 @@ import { createServerFn } from '@tanstack/react-start'
 import { type Address, formatUnits, type Hex } from 'viem'
 import { Tick } from 'viem/tempo'
 import {
+	append,
 	attributeVolume,
 	bookStatus,
 	type DexPool,
@@ -21,6 +22,7 @@ import {
 	readContracts,
 	readQuoteSwitches,
 	readTokens,
+	readVerified,
 	sqlTime,
 } from '#lib/server/dex-indexer'
 import { withDeadline } from '#lib/server/dex-route'
@@ -85,7 +87,7 @@ export async function getDexPools(): Promise<DexPoolsSnapshot> {
 		month: sqlTime(now - 30 * 86_400_000),
 	}
 
-	const [byBalance, byVolume, blockNumber] = await Promise.all([
+	const [byBalance, byVolume, blockNumber, verified] = await Promise.all([
 		indexer(
 			chainId,
 			`SELECT base FROM dex_pair_liquidity WHERE liquidity > 0
@@ -97,12 +99,18 @@ export async function getDexPools(): Promise<DexPoolsSnapshot> {
 			GROUP BY token ORDER BY sum(quote_volume) DESC LIMIT ${BASES_BY_VOLUME}`,
 		),
 		client.getBlockNumber(),
+		readVerified(chainId),
 	])
+	// Verified tokens are always included, so spam can't crowd them out of
+	// the rankings.
 	const bases = new Set(
 		[
+			...verified,
 			...byBalance.map((row) => addressOf(row.base)),
 			...byVolume.map((row) => addressOf(row.token)),
-		].filter((base) => base !== undefined),
+		]
+			.map((base) => addressOf(base))
+			.filter((base) => base !== undefined),
 	)
 	if (bases.size === 0)
 		return { blockNumber: String(blockNumber), generatedAt: now, pools: [] }
@@ -186,11 +194,7 @@ export async function getDexPools(): Promise<DexPoolsSnapshot> {
 	const totals = volumesByToken(volumeRows)
 	const beforeSwitch = volumesByToken(beforeSwitchRows)
 	const booksByBase = new Map<Address, Address[]>()
-	for (const pair of pairs)
-		booksByBase.set(pair.base, [
-			...(booksByBase.get(pair.base) ?? []),
-			pair.quote,
-		])
+	for (const pair of pairs) append(booksByBase, pair.base, pair.quote)
 
 	const valid = (tick: number) => tick >= Tick.minTick && tick <= Tick.maxTick
 	const entries = pairs.flatMap((pair, index) => {

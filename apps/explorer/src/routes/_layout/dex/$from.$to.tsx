@@ -8,6 +8,7 @@ import {
 import { useEffect, useId, useRef, useState } from 'react'
 import type * as React from 'react'
 import { CopyButton } from '#comps/CopyButton'
+import { DexSwapsGrid, LivePill, useDexSwaps } from '#comps/DexSwaps'
 import { Sections } from '#comps/Sections'
 import { TokenIcon } from '#comps/TokenIcon'
 import { cx } from '#lib/css'
@@ -97,6 +98,15 @@ function DexRoutePage(): React.JSX.Element {
 	const search = { ...params, ...Route.useSearch() }
 	const query = useQuery(dexRouteQueryOptions(search))
 	const isMobile = useMediaQuery('(max-width: 799px)')
+	const [section, setSection] = useState(0)
+	const [live, setLive] = useState(true)
+	const [paused, setPaused] = useState(false)
+	// Poll only while the feed is on screen.
+	const swaps = useDexSwaps(
+		live && !paused && (isMobile || section === 1),
+		query.data?.path.map((token) => token.address),
+		Boolean(query.data),
+	)
 	const snapshot = query.data
 	const from = snapshot?.path[0]
 	const to = snapshot?.path[snapshot.path.length - 1]
@@ -324,6 +334,8 @@ function DexRoutePage(): React.JSX.Element {
 			{snapshot && from && to && (
 				<Sections
 					mode={isMobile ? 'stacked' : 'tabs'}
+					activeSection={section}
+					onSectionChange={setSection}
 					sections={[
 						{
 							title: snapshot.legs.length === 1 ? 'Order book' : 'Order books',
@@ -340,6 +352,34 @@ function DexRoutePage(): React.JSX.Element {
 									))}
 								</div>
 							),
+						},
+						{
+							title: 'Swaps',
+							autoCollapse: false,
+							contextual: (
+								<LivePill
+									live={live && !paused}
+									onToggle={() => setLive(!live)}
+								/>
+							),
+							content:
+								swaps.isError && !swaps.data ? (
+									<p role="alert" className="p-[18px] copy-14 text-secondary">
+										{swaps.error.message}
+									</p>
+								) : (
+									// biome-ignore lint/a11y/noStaticElementInteractions: pause on hover
+									<div
+										onMouseEnter={() => setPaused(true)}
+										onMouseLeave={() => setPaused(false)}
+									>
+										<DexSwapsGrid
+											swaps={swaps.data ?? []}
+											loading={swaps.isPending}
+											live={live && !paused}
+										/>
+									</div>
+								),
 						},
 						{
 							title: 'Details',

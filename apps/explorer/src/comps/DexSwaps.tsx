@@ -1,3 +1,4 @@
+import type { Address as TokenAddress } from 'viem'
 import { useQuery } from '@tanstack/react-query'
 import type * as React from 'react'
 import { Address } from '#comps/Address'
@@ -14,8 +15,13 @@ import Play from '~icons/lucide/play'
 const amount = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 })
 const LIVE_SCOPE = 'dex-swaps'
 
-export function useDexSwaps(live: boolean) {
-	return useQuery(dexSwapsQueryOptions(live))
+/** Recent swaps, or only those between a route's two ends. */
+export function useDexSwaps(
+	live: boolean,
+	path?: TokenAddress[],
+	enabled = true,
+) {
+	return useQuery({ ...dexSwapsQueryOptions(live, path), enabled })
 }
 
 export function DexSwapsGrid(props: DexSwapsGrid.Props): React.JSX.Element {
