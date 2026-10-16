@@ -5,6 +5,7 @@ import * as z from 'zod/mini'
 import { ExploreInput } from '#comps/ExploreInput'
 import { cx } from '#lib/css'
 import { getTempoEnv } from '#lib/env'
+import ArrowLeftRightIcon from '~icons/lucide/arrow-left-right'
 import BoxIcon from '~icons/lucide/box'
 import CoinsIcon from '~icons/lucide/coins'
 import FileIcon from '~icons/lucide/file'
@@ -112,7 +113,7 @@ function SpotlightLinks() {
 	const spotlightData = getSpotlightData()
 
 	return (
-		<section className="text-center max-w-[560px] px-4">
+		<section className="text-center max-w-[680px] px-4">
 			<div className="group/pills flex items-center gap-2 copy-13 flex-wrap justify-center">
 				{spotlightData && (
 					<>
@@ -153,6 +154,12 @@ function SpotlightLinks() {
 					icon={<CoinsIcon className="size-[14px] text-accent" />}
 				>
 					Tokens
+				</SpotlightPill>
+				<SpotlightPill
+					to="/dex"
+					icon={<ArrowLeftRightIcon className="size-[14px] text-accent" />}
+				>
+					DEX
 				</SpotlightPill>
 			</div>
 		</section>

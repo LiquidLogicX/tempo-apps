@@ -280,7 +280,7 @@ function tickPrice(tick: number): number {
 	return (100_000 + tick) / 100_000
 }
 
-async function withDeadline<T>(read: Promise<T>): Promise<T> {
+export async function withDeadline<T>(read: Promise<T>): Promise<T> {
 	let timer: ReturnType<typeof setTimeout> | undefined
 	try {
 		return await Promise.race([
