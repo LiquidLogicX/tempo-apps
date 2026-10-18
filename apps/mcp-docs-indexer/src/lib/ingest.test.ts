@@ -822,6 +822,7 @@ describe('syncSource — per-page conditional fetch', () => {
 		expect(store.has('etag:viem')).toBe(false)
 
 		failPage = false
+		vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 3_600_001)
 		expect(
 			await syncSource({ source: SOURCE, instance, etagCache: kv }),
 		).toMatchObject({
@@ -870,6 +871,7 @@ describe('syncSource — per-page conditional fetch', () => {
 		).toMatchObject({ failed: 1 })
 		expect(store.get('retry_force:viem')).toBe('1')
 		expect(store.has('etag:viem')).toBe(false)
+		vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 3_600_001)
 		expect(
 			await syncSource({ source: SOURCE, instance, etagCache: kv }),
 		).toMatchObject({
@@ -1330,6 +1332,7 @@ describe('partial progress and bounded dependencies', () => {
 		expect(JSON.parse(store.get('index:viem')!)).toHaveProperty('viem/a.md')
 		expect(store.has('etag:viem')).toBe(false)
 		broken = false
+		vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 3_600_001)
 		expect(
 			await syncSource({ source: SOURCE, instance, etagCache: kv }),
 		).toMatchObject({ pages: 1, unchanged: 1, failed: 0 })
@@ -1357,6 +1360,7 @@ describe('partial progress and bounded dependencies', () => {
 		)
 		expect(JSON.parse(store.get('index:tempo')!)).toHaveProperty('tempo/old.md')
 		broken = false
+		vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 3_600_001)
 		expect(await syncSource({ source, instance, etagCache: kv })).toMatchObject(
 			{ pages: 1, unchanged: 1, failed: 0, deleted: 1 },
 		)
@@ -1449,4 +1453,140 @@ describe('partial progress and bounded dependencies', () => {
 			vi.useRealTimers()
 		}
 	})
+})
+
+describe('retry scheduling', () => {
+	it('backs off only failed pages, preserves progress, and clears retries after recovery', async () => {
+		let now = 1_000_000
+		vi.spyOn(Date, 'now').mockImplementation(() => now)
+		const { instance, uploads } = fakeInstance()
+		const { kv, store } = fakeKv()
+		let broken = true
+		fetchMock.mockImplementation(async (url: string) =>
+			url.endsWith('/llms.txt')
+				? mockResponse({ body: '- [A](/a)\n- [B](/b)', etag: 'index' })
+				: broken && url.endsWith('/b.md')
+					? mockResponse({ status: 503 })
+					: mockResponse({ body: '# Page' }),
+		)
+		expect(
+			await syncSource({ source: SOURCE, instance, etagCache: kv }),
+		).toMatchObject({ pages: 1, failed: 1 })
+		for (const delay of [3_600_000, 7_200_000]) {
+			fetchMock.mockClear()
+			expect(
+				await syncSource({ source: SOURCE, instance, etagCache: kv }),
+			).toMatchObject({ deferred: 1, failed: 0, unchanged: 1 })
+			expect(fetchMock.mock.calls.map(([url]) => url)).not.toContain(
+				'https://viem.sh/b.md',
+			)
+			expect(store.has('etag:viem')).toBe(false)
+			now += delay
+			expect(
+				await syncSource({ source: SOURCE, instance, etagCache: kv }),
+			).toMatchObject({ failed: 1 })
+		}
+		broken = false
+		now += 14_400_000
+		expect(
+			await syncSource({ source: SOURCE, instance, etagCache: kv }),
+		).toMatchObject({ pages: 1, failed: 0 })
+		expect(JSON.parse(store.get('page_retries:viem')!)).toEqual({})
+		expect(uploads.map(({ key }) => key)).toEqual(['viem/a.md', 'viem/b.md'])
+		expect(store.get('etag:viem')).toBe('index')
+	})
+	it('starts destination checkpoints independently without touching the previous index', async () => {
+		const { instance, uploads, deletes } = fakeInstance()
+		const seed = {
+			'etag:viem': 'old',
+			'index:viem': JSON.stringify({ 'viem/old.md': { id: 'old' } }),
+		}
+		const { kv, store } = fakeKv(seed)
+		fetchMock.mockImplementation(async (url: string) =>
+			mockResponse({
+				body: url.endsWith('/llms.txt') ? '- [A](/a)' : '# A',
+				etag: 'new',
+			}),
+		)
+		await syncSource({
+			source: { ...SOURCE, instanceId: 'docs-viem' },
+			instance,
+			etagCache: kv,
+		})
+		expect(uploads).toHaveLength(1)
+		expect(deletes).toEqual([])
+		for (const [key, value] of Object.entries(seed))
+			expect(store.get(key)).toBe(value)
+		expect(store.has('index:viem:docs-viem')).toBe(true)
+	})
+})
+
+it('anchors retry time before slow page failures', async () => {
+	let now = 1_000_000
+	vi.spyOn(Date, 'now').mockImplementation(() => now)
+	const { instance } = fakeInstance()
+	const { kv, store } = fakeKv()
+	fetchMock.mockImplementation(async (url: string) => {
+		if (url.endsWith('/llms.txt'))
+			return mockResponse({ body: '- [A](/a)\n- [B](/b)' })
+		if (url.endsWith('/b.md')) {
+			now += 15000
+			return mockResponse({ status: 503 })
+		}
+		return mockResponse({ body: '# A' })
+	})
+	await syncSource({ source: SOURCE, instance, etagCache: kv })
+	expect(JSON.parse(store.get('page_retries:viem')!)['viem/b.md'].after).toBe(
+		1_000_000 + 3_600_000,
+	)
+	now = 1_000_000 + 3_600_000
+	expect(
+		await syncSource({ source: SOURCE, instance, etagCache: kv }),
+	).toMatchObject({ failed: 1, unchanged: 1 })
+})
+it('does not back off pages after a destination-wide upload outage', async () => {
+	const { instance } = fakeInstance()
+	const { kv, store } = fakeKv()
+	vi.spyOn(instance.items, 'upload').mockRejectedValue(
+		new Error('destination unavailable'),
+	)
+	fetchMock.mockImplementation(async (url: string) =>
+		mockResponse({
+			body: url.endsWith('/llms.txt') ? '- [A](/a)\n- [B](/b)' : '# Page',
+		}),
+	)
+	for (let i = 0; i < 2; i++) {
+		expect(
+			await syncSource({ source: SOURCE, instance, etagCache: kv }),
+		).toMatchObject({ failed: 2 })
+		expect(JSON.parse(store.get('page_retries:viem')!)).toEqual({})
+	}
+})
+
+it('does not assign page backoff when the source deadline interrupts a batch', async () => {
+	vi.useFakeTimers()
+	try {
+		const { instance } = fakeInstance()
+		const { kv, store } = fakeKv()
+		fetchMock.mockImplementation(async (url: string) => {
+			if (url.endsWith('/llms.txt'))
+				return mockResponse({
+					body: Array.from(
+						{ length: 80 },
+						(_, i) => `- [Page ${i}](/page-${i})`,
+					).join('\n'),
+				})
+			await new Promise((resolve) => setTimeout(resolve, 14000))
+			return mockResponse({ body: '# Page' })
+		})
+		const pending = syncSource({ source: SOURCE, instance, etagCache: kv })
+		await vi.advanceTimersByTimeAsync(90_001)
+		const report = await pending
+		expect(report).toMatchObject({ status: 'synced' })
+		expect('failed' in report && report.failed).toBeGreaterThan(0)
+		expect(JSON.parse(store.get('page_retries:viem')!)).toEqual({})
+		await vi.runAllTimersAsync()
+	} finally {
+		vi.useRealTimers()
+	}
 })
