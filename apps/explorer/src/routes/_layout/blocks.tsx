@@ -11,6 +11,7 @@ import {
 import { getBatchedClient, getTempoChain } from '#wagmi.config'
 import * as z from 'zod/mini'
 import { DataGrid } from '#comps/DataGrid'
+import { Pagination as PageList } from '#comps/Pagination'
 import { Sections } from '#comps/Sections'
 import {
 	FormattedTimestamp,
@@ -343,8 +344,9 @@ function RouteComponent() {
 }
 
 /**
- * Pages through blocks from the chain head. Latest and Oldest are the first and
- * last pages, and Newer and Older step one page either way.
+ * Pages through blocks from the chain head: page 1 holds the latest blocks and
+ * the last page holds genesis. Each page links to its newest block (`from`),
+ * so a shared link keeps showing the same blocks as the chain grows.
  */
 function BlocksPagination(props: {
 	displayedFrom: bigint | undefined
@@ -353,70 +355,88 @@ function BlocksPagination(props: {
 	isAtLatest: boolean
 }): React.JSX.Element {
 	const { displayedFrom, displayedEnd, latestBlockNumber, isAtLatest } = props
-	const isAtOldest = displayedEnd === 0n
-	const canGoOlder = displayedEnd != null && displayedEnd > 0n
+	const perPage = BigInt(BLOCKS_PER_PAGE)
+	const latest = latestBlockNumber ?? displayedFrom ?? 0n
+	// ⌈(latest + 1) / perPage⌉, since blocks run from 0 to `latest`.
+	const pages = Number((latest + perPage) / perPage)
+	const page =
+		isAtLatest || displayedFrom == null
+			? 1
+			: Math.min(
+					pages,
+					Math.max(1, Number((latest - displayedFrom) / perPage) + 1),
+				)
 
-	const newerFrom =
-		displayedFrom != null ? Number(displayedFrom) + BLOCKS_PER_PAGE : undefined
-	const olderFrom = displayedEnd != null ? Number(displayedEnd) - 1 : undefined
+	/** The newest block on `page`, or undefined for the first, live page. */
+	const fromOf = (target: number) =>
+		target === 1 ? undefined : Number(latest - BigInt(target - 1) * perPage)
+
+	const newer =
+		isAtLatest || displayedFrom == null ? null : (
+			<BlocksPageLink
+				from={
+					displayedFrom + perPage >= latest
+						? undefined
+						: Number(displayedFrom + perPage)
+				}
+			/>
+		)
+	const older =
+		displayedEnd != null && displayedEnd > 0n ? (
+			<BlocksPageLink from={Number(displayedEnd - 1n)} />
+		) : null
+	// Disabled steps stay in place, so the page links do not shift.
+	const steps = {
+		newer: (
+			<Pagination.Previous disabled={!newer} render={newer ?? undefined}>
+				Newer
+			</Pagination.Previous>
+		),
+		older: (
+			<Pagination.Next disabled={!older} render={older ?? undefined}>
+				Older
+			</Pagination.Next>
+		),
+	}
+	let gaps = 0
 
 	return (
 		<div {...styles.pagination()}>
-			<Pagination aria-label="Blocks pagination" size="small">
-				<Pagination.Previous
-					disabled={isAtLatest}
-					render={
-						isAtLatest ? undefined : (
-							<Link
-								to="."
-								resetScroll={false}
-								search={{ from: newerFrom, live: undefined }}
-							/>
-						)
-					}
-				>
-					Newer
-				</Pagination.Previous>
-				<Pagination.Page
-					current={isAtLatest}
-					render={
-						<Link
-							to="."
-							resetScroll={false}
-							search={{ from: undefined, live: undefined }}
-						/>
-					}
-				>
-					Latest
-				</Pagination.Page>
-				<Pagination.Ellipsis />
-				<Pagination.Page
-					current={isAtOldest}
-					render={
-						<Link
-							to="."
-							resetScroll={false}
-							search={{ from: BLOCKS_PER_PAGE - 1, live: undefined }}
-						/>
-					}
-				>
-					Oldest
-				</Pagination.Page>
-				<Pagination.Next
-					disabled={!canGoOlder}
-					render={
-						canGoOlder ? (
-							<Link
-								to="."
-								resetScroll={false}
-								search={{ from: olderFrom, live: undefined }}
-							/>
-						) : undefined
-					}
-				>
-					Older
-				</Pagination.Next>
-			</Pagination>
+			{/* Both layouts render, and `display: none` keeps only the visible one in the accessibility tree. */}
+			<div {...styles.wide()}>
+				<Pagination aria-label="Blocks pagination" size="small">
+					{steps.newer}
+					{PageList.getPagination(page, pages).map((item) =>
+						item === PageList.Ellipsis ? (
+							<Pagination.Ellipsis key={`gap-${gaps++}`} />
+						) : (
+							<Pagination.Page
+								key={item}
+								aria-label={`Page ${PageList.numFormat.format(item)}`}
+								current={item === page}
+								render={
+									item === page ? undefined : (
+										<BlocksPageLink from={fromOf(item)} />
+									)
+								}
+							>
+								{PageList.numFormat.format(item)}
+							</Pagination.Page>
+						),
+					)}
+					{steps.older}
+				</Pagination>
+			</div>
+			<div {...styles.narrow()}>
+				<Pagination aria-label="Blocks pagination" size="small">
+					{steps.newer}
+					<Pagination.Ellipsis>
+						Page {PageList.numFormat.format(page)} of{' '}
+						{PageList.numFormat.format(pages)}
+					</Pagination.Ellipsis>
+					{steps.older}
+				</Pagination>
+			</div>
 			<span {...styles.pageCount()}>
 				{displayedFrom != null &&
 				displayedEnd != null &&
@@ -425,6 +445,26 @@ function BlocksPagination(props: {
 					: '…'}
 			</span>
 		</div>
+	)
+}
+
+/**
+ * A link to the page whose newest block is `from`. It matches the search
+ * exactly: by default the router counts `{ from: undefined }` as a subset of
+ * every page's search and marks the link as the current page everywhere.
+ */
+function BlocksPageLink(
+	props: Omit<React.ComponentProps<'a'>, 'href'> & { from: number | undefined },
+): React.JSX.Element {
+	const { from, ...rest } = props
+	return (
+		<Link
+			to="."
+			resetScroll={false}
+			search={{ from, live: undefined }}
+			activeOptions={{ exact: true }}
+			{...rest}
+		/>
 	)
 }
 
@@ -485,4 +525,11 @@ namespace styles {
 	})
 
 	export const pageCount = style({ fontVariantNumeric: 'tabular-nums !custom' })
+
+	export const wide = style({
+		display: 'none',
+		'@media 640': { display: 'block' },
+	})
+
+	export const narrow = style({ '@media 640': { display: 'none' } })
 }
