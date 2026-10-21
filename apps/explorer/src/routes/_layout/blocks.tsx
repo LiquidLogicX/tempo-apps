@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { createFileRoute, Link } from '@tanstack/react-router'
+import { Button, Hex, Pagination, style, Tag } from '@tempoxyz/ds'
 import * as React from 'react'
 import { type Block, type Client, createPublicClient, webSocket } from 'viem'
 import {
@@ -10,7 +11,6 @@ import {
 import { getBatchedClient, getTempoChain } from '#wagmi.config'
 import * as z from 'zod/mini'
 import { DataGrid } from '#comps/DataGrid'
-import { Midcut } from '#comps/Midcut'
 import { Sections } from '#comps/Sections'
 import {
 	FormattedTimestamp,
@@ -18,14 +18,9 @@ import {
 	useTimeFormat,
 } from '#comps/TimeFormat'
 import { syncBlockNumberAtLeast } from '#lib/block-number'
-import { cx } from '#lib/css'
 import { OG_BASE_URL } from '#lib/og'
 import { BLOCKS_PER_PAGE, blocksQueryOptions } from '#lib/queries'
-import ChevronFirst from '~icons/lucide/chevron-first'
-import ChevronLast from '~icons/lucide/chevron-last'
-import ChevronLeft from '~icons/lucide/chevron-left'
-import ChevronRight from '~icons/lucide/chevron-right'
-import Play from '~icons/lucide/play'
+import { link, rowShimmer } from '#styles/explorer'
 
 export const Route = createFileRoute('/_layout/blocks')({
 	component: RouteComponent,
@@ -209,7 +204,7 @@ function RouteComponent() {
 	const displayedEnd = blocks[blocks.length - 1]?.number ?? undefined
 
 	const columns: DataGrid.Column[] = [
-		{ label: 'Block', width: '1fr', minWidth: 100 },
+		{ label: 'Block', width: '1fr' },
 		{ label: 'Hash', width: '8fr' },
 		{
 			align: 'end',
@@ -221,58 +216,50 @@ function RouteComponent() {
 				/>
 			),
 			width: '1fr',
-			minWidth: 80,
 		},
 		{ align: 'end', label: 'Txns', width: '1fr' },
 	]
 
 	return (
-		<div className="flex flex-col gap-6 px-4 pt-20 pb-16 max-w-300 mx-auto w-full">
+		<div {...styles.page()}>
 			<Sections
 				mode="tabs"
 				sections={[
 					{
 						title: 'Blocks',
-						totalItems: totalBlocks || undefined,
-						autoCollapse: false,
 						contextual: (
-							<Link
-								to="."
-								resetScroll={false}
-								search={(prev) => ({
-									...prev,
-									// at latest defaults to live, otherwise defaults to not live
-									live: isAtLatest
-										? !live
-											? undefined
-											: false
-										: !live
-											? true
-											: undefined,
-								})}
-								className={cx(
-									'flex items-center gap-[4px] px-[6px] py-[2px] rounded-[4px] label-12 font-medium press-down',
-									live && !paused
-										? 'bg-positive/10 text-positive hover:bg-positive/20'
-										: 'bg-base-alt text-tertiary hover:bg-base-alt/80',
-								)}
-								title={live ? 'Pause live updates' : 'Resume live updates'}
+							<Button.Link
+								render={
+									<Link
+										to="."
+										resetScroll={false}
+										search={(prev) => ({
+											...prev,
+											// at latest defaults to live, otherwise defaults to not live
+											live: isAtLatest
+												? !live
+													? undefined
+													: false
+												: !live
+													? true
+													: undefined,
+										})}
+									/>
+								}
+								aria-label={
+									live ? 'Live, pause updates' : 'Paused, resume updates'
+								}
+								size="small"
+								variant="secondary"
 							>
-								{live && !paused ? (
-									<>
-										<span className="relative flex size-2">
-											<span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-positive opacity-75" />
-											<span className="relative inline-flex rounded-full size-2 bg-positive" />
-										</span>
-										<span>Live</span>
-									</>
-								) : (
-									<>
-										<Play className="size-3" />
-										<span>Paused</span>
-									</>
-								)}
-							</Link>
+								<Tag
+									intent={live && !paused ? 'positive' : 'neutral'}
+									variant="plain"
+								>
+									<Tag.Dot />
+									{live && !paused ? 'Live' : 'Paused'}
+								</Tag>
+							</Button.Link>
 						),
 						content: (
 							// biome-ignore lint/a11y/noStaticElementInteractions: pause on hover
@@ -290,7 +277,8 @@ function RouteComponent() {
 									columns={{ stacked: columns, tabs: columns }}
 									items={() =>
 										blocks.map((block, index) => {
-											const blockNumber = block.number?.toString() ?? '0'
+											const number = block.number ?? 0n
+											const blockNumber = number.toString()
 											const blockHash = block.hash ?? '0x'
 											const txCount = block.transactions?.length ?? 0
 											const isActive = isAtLatest && live && index === 0
@@ -300,34 +288,32 @@ function RouteComponent() {
 												cells: [
 													<span
 														key="number"
-														className="font-sans tabular-nums text-accent font-medium"
+														{...styles.number({ className: link().className })}
 													>
-														#{blockNumber}
+														{number.toLocaleString('en-US')}
 													</span>,
-													<span key="hash" className="font-mono w-full min-w-0">
-														<Midcut value={blockHash} prefix="0x" />
-													</span>,
-													<span
-														key="time"
-														className="font-sans text-secondary tabular-nums whitespace-nowrap"
-													>
+													<Hex
+														key="hash"
+														value={blockHash}
+														{...styles.hash()}
+													/>,
+													<span key="time" {...styles.time()}>
 														<FormattedTimestamp
 															timestamp={block.timestamp}
 															format={timeFormat}
 														/>
 													</span>,
-													<span
-														key="txns"
-														className="font-sans text-secondary tabular-nums"
-													>
+													<span key="txns" {...styles.txns()}>
 														{txCount}
 													</span>,
 												],
 												link: {
 													href: `/block/${blockNumber}`,
-													title: `View block #${blockNumber}`,
+													title: `View block ${blockNumber}`,
 												},
-												className: isActive ? 'block-row-shimmer' : undefined,
+												className: isActive
+													? styles.liveRow().className
+													: undefined,
 											}
 										})
 									}
@@ -336,7 +322,7 @@ function RouteComponent() {
 									loading={isLoading}
 									itemsLabel="blocks"
 									itemsPerPage={BLOCKS_PER_PAGE}
-									emptyState="No blocks found."
+									emptyState="No blocks"
 									pagination={
 										<BlocksPagination
 											displayedFrom={displayedFrom}
@@ -356,18 +342,18 @@ function RouteComponent() {
 	)
 }
 
-function BlocksPagination({
-	displayedFrom,
-	displayedEnd,
-	latestBlockNumber,
-	isAtLatest,
-}: {
+/**
+ * Pages through blocks from the chain head. Latest and Oldest are the first and
+ * last pages, and Newer and Older step one page either way.
+ */
+function BlocksPagination(props: {
 	displayedFrom: bigint | undefined
 	displayedEnd: bigint | undefined
 	latestBlockNumber: bigint | undefined
 	isAtLatest: boolean
-}) {
-	const canGoNewer = !isAtLatest
+}): React.JSX.Element {
+	const { displayedFrom, displayedEnd, latestBlockNumber, isAtLatest } = props
+	const isAtOldest = displayedEnd === 0n
 	const canGoOlder = displayedEnd != null && displayedEnd > 0n
 
 	const newerFrom =
@@ -375,57 +361,128 @@ function BlocksPagination({
 	const olderFrom = displayedEnd != null ? Number(displayedEnd) - 1 : undefined
 
 	return (
-		<div className="flex flex-col items-center sm:flex-row sm:justify-between gap-[12px] border-t border-solid border-card-border px-[16px] py-[12px] label-12 text-tertiary">
-			<div className="flex items-center justify-center sm:justify-start gap-[6px]">
-				<Link
-					to="."
-					resetScroll={false}
-					search={{ from: undefined, live: undefined }}
-					disabled={!canGoNewer}
-					className="rounded-button border border-base-border hover:bg-alt flex items-center justify-center cursor-pointer active:translate-y-[0.5px] aria-disabled:cursor-not-allowed aria-disabled:opacity-50 size-[24px] text-primary"
-					title="Latest blocks"
+		<div {...styles.pagination()}>
+			<Pagination aria-label="Blocks pagination" size="small">
+				<Pagination.Previous
+					disabled={isAtLatest}
+					render={
+						isAtLatest ? undefined : (
+							<Link
+								to="."
+								resetScroll={false}
+								search={{ from: newerFrom, live: undefined }}
+							/>
+						)
+					}
 				>
-					<ChevronFirst className="size-[14px]" />
-				</Link>
-				<Link
-					to="."
-					resetScroll={false}
-					search={{ from: newerFrom, live: undefined }}
-					disabled={!canGoNewer}
-					className="rounded-button border border-base-border hover:bg-alt flex items-center justify-center cursor-pointer active:translate-y-[0.5px] aria-disabled:cursor-not-allowed aria-disabled:opacity-50 size-[24px] text-primary"
-					title="Newer blocks"
+					Newer
+				</Pagination.Previous>
+				<Pagination.Page
+					current={isAtLatest}
+					render={
+						<Link
+							to="."
+							resetScroll={false}
+							search={{ from: undefined, live: undefined }}
+						/>
+					}
 				>
-					<ChevronLeft className="size-[14px]" />
-				</Link>
-				<span className="text-primary font-medium tabular-nums px-[4px] whitespace-nowrap">
-					{displayedFrom != null ? `#${displayedFrom}-#${displayedEnd}` : '…'}
-				</span>
-				<Link
-					to="."
-					resetScroll={false}
-					search={{ from: olderFrom, live: undefined }}
+					Latest
+				</Pagination.Page>
+				<Pagination.Ellipsis />
+				<Pagination.Page
+					current={isAtOldest}
+					render={
+						<Link
+							to="."
+							resetScroll={false}
+							search={{ from: BLOCKS_PER_PAGE - 1, live: undefined }}
+						/>
+					}
+				>
+					Oldest
+				</Pagination.Page>
+				<Pagination.Next
 					disabled={!canGoOlder}
-					className="rounded-button border border-base-border hover:bg-alt flex items-center justify-center cursor-pointer active:translate-y-[0.5px] aria-disabled:cursor-not-allowed aria-disabled:opacity-50 size-[24px] text-primary"
-					title="Older blocks"
+					render={
+						canGoOlder ? (
+							<Link
+								to="."
+								resetScroll={false}
+								search={{ from: olderFrom, live: undefined }}
+							/>
+						) : undefined
+					}
 				>
-					<ChevronRight className="size-[14px]" />
-				</Link>
-				<Link
-					to="."
-					resetScroll={false}
-					search={{ from: BLOCKS_PER_PAGE - 1, live: undefined }}
-					disabled={displayedEnd === 0n}
-					className="rounded-button border border-base-border hover:bg-alt flex items-center justify-center cursor-pointer active:translate-y-[0.5px] aria-disabled:cursor-not-allowed aria-disabled:opacity-50 size-[24px] text-primary"
-					title="Oldest blocks"
-				>
-					<ChevronLast className="size-[14px]" />
-				</Link>
-			</div>
-			<span className="tabular-nums">
-				{latestBlockNumber != null
-					? `${(Number(latestBlockNumber) + 1).toLocaleString()} blocks`
+					Older
+				</Pagination.Next>
+			</Pagination>
+			<span {...styles.pageCount()}>
+				{displayedFrom != null &&
+				displayedEnd != null &&
+				latestBlockNumber != null
+					? `Showing blocks ${displayedEnd.toLocaleString('en-US')}–${displayedFrom.toLocaleString('en-US')} of ${(latestBlockNumber + 1n).toLocaleString('en-US')}`
 					: '…'}
 			</span>
 		</div>
 	)
+}
+
+namespace styles {
+	export const page = style({
+		display: 'flex',
+		flexDirection: 'column',
+		gap: '24',
+		marginInline: 'auto !custom',
+		maxWidth: '1200px !custom',
+		paddingBottom: '64',
+		paddingInline: '16',
+		paddingTop: '64',
+		width: '100% !custom',
+	})
+
+	export const number = style({
+		fontVariantNumeric: 'tabular-nums !custom',
+		typography: 'copy.14.strong',
+	})
+
+	export const hash = style({ minWidth: '0 !custom' })
+
+	export const time = style({
+		color: 'gray.900',
+		fontVariantNumeric: 'tabular-nums',
+		whiteSpace: 'nowrap',
+	})
+
+	export const txns = style({
+		color: 'gray.900',
+		fontVariantNumeric: 'tabular-nums',
+	})
+
+	// Newest live block row: a positive tint that fades out. Starting at peak
+	// tint keeps it smooth when a new block interrupts it. Passed to the
+	// DataGrid row, which sets no animation of its own.
+	export const liveRow = style({
+		animation: `${rowShimmer} 0.5s ease-out 1 !custom`,
+	})
+
+	export const pagination = style({
+		alignItems: 'center',
+		borderColor: 'grayAlpha.200',
+		borderStyle: 'solid',
+		borderTopWidth: '1px',
+		color: 'gray.900',
+		display: 'flex',
+		flexDirection: 'column',
+		gap: '12',
+		paddingBlock: '12',
+		paddingInline: '16',
+		typography: 'label.12',
+		'@media (width >= 640px)': {
+			flexDirection: 'row',
+			justifyContent: 'space-between',
+		},
+	})
+
+	export const pageCount = style({ fontVariantNumeric: 'tabular-nums !custom' })
 }
