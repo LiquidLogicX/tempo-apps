@@ -196,7 +196,7 @@ jobs:
 
   comment-deployments:
     name: Post Deployment Table
-    runs-on: ${{ vars.DEPOT_ENABLED == 'true' && 'depot-ubuntu-latest' || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     needs: deploy-preview
     if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.deploy-preview.result != 'skipped' }}
     permissions:
