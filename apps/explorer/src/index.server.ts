@@ -7,6 +7,7 @@ import {
 import { handleDatadogProxy } from '#lib/server/datadog-proxy'
 import { checkRateLimit } from '#lib/server/rate-limit'
 import { checkRequestGuard } from '#lib/server/request-guard'
+import { withRequestTiming } from '#lib/server/request-timing'
 
 export const redirects: Array<{
 	from: RegExp
@@ -119,7 +120,7 @@ export default Sentry.withSentry(
 		},
 	}),
 	{
-		fetch: async (request, env, _context) => {
+		fetch: async (request, env, context) => {
 			const hostPolicy = getExplorerHostPolicy(request.url)
 			if (hostPolicy?.type === 'redirect') {
 				return Response.redirect(hostPolicy.location, 308)
@@ -142,8 +143,10 @@ export default Sentry.withSentry(
 				}
 			}
 
-			const response = await serverEntry.fetch(request, undefined)
-			return withExplorerIndexingHeaders(request.url, response)
+			return withRequestTiming(request, env, context, async () => {
+				const response = await serverEntry.fetch(request, undefined)
+				return withExplorerIndexingHeaders(request.url, response)
+			})
 		},
 	},
 )
