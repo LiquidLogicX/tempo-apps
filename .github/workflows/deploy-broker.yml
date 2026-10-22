@@ -67,7 +67,7 @@ jobs:
     with:
       install-directory: .
       working-directory: apps/${{ inputs.app }}
-      wrangler-config: wrangler.broker.json
+      wrangler-config: wrangler.prd.json
       artifact-name: ${{ inputs.app }}
 
   deploy:
