@@ -6,9 +6,14 @@ import type * as React from 'react'
  * named by a `Surface.Header` with the title and, at its end, an `action`
  * such as a status `Tag`, above full-width `Rows`. `{ label, value }`
  * sections render as key-value rows, and any other node as a row of its own.
+ * Buttons that act on the whole record go in the `footer`, below the rows, as
+ * in the TDS receipt: the last row reaches the card's bottom edge, which
+ * leaves a button there no margin.
  */
 export function InfoCard(props: InfoCard.Props): React.JSX.Element {
-	const { action, title, sections, className } = props
+	const { action, title, sections = [], footer, className } = props
+	const isEmpty = (section: (typeof sections)[number]) =>
+		section === null || section === undefined || section === false
 
 	return (
 		<Surface className={className} size="medium">
@@ -18,21 +23,23 @@ export function InfoCard(props: InfoCard.Props): React.JSX.Element {
 					{action}
 				</Surface.Header>
 			)}
-			<Rows.Root dividers="full">
-				{sections.map((section, index) => {
-					if (section === null || section === undefined || section === false)
-						return null
-					const key = `section-${index}`
-					if (typeof section === 'object' && 'label' in section)
-						return (
-							<Rows.Row key={key}>
-								<Rows.Label>{section.label}</Rows.Label>
-								{section.value}
-							</Rows.Row>
-						)
-					return <Rows.Row key={key}>{section}</Rows.Row>
-				})}
-			</Rows.Root>
+			{!sections.every(isEmpty) && (
+				<Rows.Root dividers="full">
+					{sections.map((section, index) => {
+						if (isEmpty(section)) return null
+						const key = `section-${index}`
+						if (section && typeof section === 'object' && 'label' in section)
+							return (
+								<Rows.Row key={key}>
+									<Rows.Label>{section.label}</Rows.Label>
+									{section.value}
+								</Rows.Row>
+							)
+						return <Rows.Row key={key}>{section}</Rows.Row>
+					})}
+				</Rows.Root>
+			)}
+			{footer && <div {...styles.footer()}>{footer}</div>}
 		</Surface>
 	)
 }
@@ -41,7 +48,9 @@ export namespace InfoCard {
 	export type Props = {
 		/** Shown at the end of the header, such as a status `Tag` or a small text `Button`. */
 		action?: React.ReactNode
-		sections: Array<
+		/** Buttons for the whole record, below the rows. */
+		footer?: React.ReactNode
+		sections?: Array<
 			React.ReactNode | { label: React.ReactNode; value: React.ReactNode }
 		>
 		/** Usually an `InfoCard.Title`. */
@@ -70,6 +79,14 @@ export namespace InfoCard {
 }
 
 namespace styles {
+	export const footer = style({
+		alignItems: 'center',
+		display: 'flex',
+		flexWrap: 'wrap',
+		gap: '8',
+		marginBlockStart: '16',
+	})
+
 	export const title = style({
 		alignItems: 'center',
 		color: 'foreground',

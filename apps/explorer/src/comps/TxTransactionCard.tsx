@@ -95,9 +95,11 @@ export function TxTransactionCard(
 						<span {...styles.secondary()}>Contract creation</span>
 					),
 				},
+			]}
+			footer={
 				// Replaying the transaction on the state of its parent block is the
 				// fastest way to see why it failed; `tx` alone prefills the simulator.
-				<div key="actions" {...styles.actions()}>
+				<div {...styles.actions()}>
 					<Button.Link
 						render={<Link to="/receipt/$hash" params={{ hash }} />}
 						size="small"
@@ -120,8 +122,8 @@ export function TxTransactionCard(
 					>
 						{status === 'reverted' ? 'Debug transaction' : 'Simulate'}
 					</Button.Link>
-				</div>,
-			]}
+				</div>
+			}
 		/>
 	)
 }

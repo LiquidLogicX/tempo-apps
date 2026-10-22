@@ -85,33 +85,27 @@ export function WalletActions(
 					</Tooltip.Root>
 				) : undefined
 			}
-			sections={
-				isReady
-					? [
-							<AddToWallet
-								key="add"
-								address={props.address}
-								symbol={props.symbol}
-								decimals={props.decimals}
-								image={props.image}
-							/>,
-							<SetAsFeeToken
-								key="fee"
-								address={props.address}
-								symbol={props.symbol}
-							/>,
-						]
-					: [
-							<Button
-								key="connect"
-								loading={connect.isPending || switchChain.isPending}
-								onClick={handleConnectOrSwitch}
-								size="small"
-								variant="secondary"
-							>
-								{isConnected ? 'Switch to Tempo' : `Connect ${walletName}`}
-							</Button>,
-						]
+			footer={
+				isReady ? (
+					<>
+						<AddToWallet
+							address={props.address}
+							symbol={props.symbol}
+							decimals={props.decimals}
+							image={props.image}
+						/>
+						<SetAsFeeToken address={props.address} symbol={props.symbol} />
+					</>
+				) : (
+					<Button
+						loading={connect.isPending || switchChain.isPending}
+						onClick={handleConnectOrSwitch}
+						size="small"
+						variant="secondary"
+					>
+						{isConnected ? 'Switch to Tempo' : `Connect ${walletName}`}
+					</Button>
+				)
 			}
 		/>
 	)
