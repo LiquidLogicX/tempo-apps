@@ -100,7 +100,7 @@ export namespace PanelToolbar {
 namespace styles {
 	export const toolbar = style({
 		alignItems: 'center',
-		borderBottomWidth: '1px',
+		borderBottomWidth: '1',
 		borderColor: 'grayAlpha.200',
 		borderStyle: 'solid',
 		display: 'flex',

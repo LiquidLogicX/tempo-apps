@@ -510,7 +510,7 @@ namespace styles {
 		alignItems: 'center',
 		borderColor: 'grayAlpha.200',
 		borderStyle: 'solid',
-		borderTopWidth: '1px',
+		borderTopWidth: '1',
 		color: 'gray.900',
 		display: 'flex',
 		flexDirection: 'column',

@@ -934,7 +934,7 @@ namespace styles {
 
 	export const header = style({
 		alignItems: 'center',
-		borderBottomWidth: '1px',
+		borderBottomWidth: '1',
 		borderColor: 'grayAlpha.200',
 		borderStyle: 'solid',
 		display: 'flex',
@@ -1044,7 +1044,7 @@ namespace styles {
 				false: {},
 				true: {
 					borderColor: 'red.900',
-					borderLeftWidth: '2px',
+					borderLeftWidth: '2',
 					borderStyle: 'solid',
 					paddingLeft: '6px !custom',
 				},
@@ -1061,7 +1061,7 @@ namespace styles {
 	export const indentNested = style({
 		alignSelf: 'stretch',
 		borderColor: 'grayAlpha.300',
-		borderLeftWidth: '1px',
+		borderLeftWidth: '1',
 		borderStyle: 'solid',
 		paddingLeft: '8',
 	})
@@ -1120,7 +1120,7 @@ namespace styles {
 
 	export const outputNested = style({
 		borderColor: 'grayAlpha.300',
-		borderLeftWidth: '1px',
+		borderLeftWidth: '1',
 		borderStyle: 'solid',
 		paddingLeft: '40',
 	})

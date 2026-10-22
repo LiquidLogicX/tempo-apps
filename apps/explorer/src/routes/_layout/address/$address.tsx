@@ -3322,7 +3322,7 @@ namespace styles {
 	export const paginationBar = style({
 		...paginationRowBase,
 		...dividerLine,
-		borderTopWidth: '1px',
+		borderTopWidth: '1',
 	})
 
 	export const infoLabel = style({
@@ -3362,7 +3362,7 @@ namespace styles {
 
 	export const holdingsFooter = style({
 		...dividerLine,
-		borderTopWidth: '1px',
+		borderTopWidth: '1',
 		display: 'flex',
 		flexDirection: 'column',
 		gap: '0',
@@ -3377,7 +3377,7 @@ namespace styles {
 		justifyContent: 'center',
 		paddingBlock: '8',
 		paddingInline: '16',
-		selectors: { '&:not(:first-child)': { borderTopWidth: '1px' } },
+		selectors: { '&:not(:first-child)': { borderTopWidth: '1' } },
 	})
 
 	export const filter = style({
@@ -3396,7 +3396,7 @@ namespace styles {
 		...dividerLine,
 		alignItems: 'center',
 		backgroundColor: 'grayAlpha.100',
-		borderBottomWidth: '2px',
+		borderBottomWidth: '2',
 		display: 'flex',
 		marginInline: '-16px !custom',
 		paddingBlock: '12',
@@ -3431,14 +3431,14 @@ namespace styles {
 
 	export const divider = style({
 		...dividerLine,
-		borderTopWidth: '1px',
+		borderTopWidth: '1',
 		flex: 1,
 	})
 
 	export const voucherRow = style({
 		...dividerLine,
 		alignItems: 'center',
-		borderBottomWidth: '1px',
+		borderBottomWidth: '1',
 		display: 'flex',
 		paddingBlock: '8',
 	})

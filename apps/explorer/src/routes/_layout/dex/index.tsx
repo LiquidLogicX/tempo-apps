@@ -509,7 +509,7 @@ namespace styles {
 			outlineStyle: 'solid !custom',
 			outlineWidth: '2px !custom',
 			padding: '0',
-			transitionDuration: '160ms',
+			transitionDuration: '160',
 			transitionProperty: 'color, outline-color',
 			transitionTimingFunction: 'snappy',
 			selectors: {

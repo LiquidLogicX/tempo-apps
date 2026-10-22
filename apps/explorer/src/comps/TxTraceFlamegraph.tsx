@@ -390,7 +390,7 @@ namespace styles {
 
 	export const header = style({
 		alignItems: 'center',
-		borderBottomWidth: '1px',
+		borderBottomWidth: '1',
 		borderColor: 'grayAlpha.200',
 		borderStyle: 'solid',
 		display: 'flex',
@@ -421,7 +421,7 @@ namespace styles {
 	export const bar = style({
 		borderRadius: '4',
 		borderStyle: 'solid',
-		borderWidth: '1px',
+		borderWidth: '1',
 		height: '100% !custom',
 		overflow: 'hidden',
 		position: 'absolute',
@@ -438,7 +438,7 @@ namespace styles {
 		}),
 	)
 
-	export const raised = style({ zIndex: 10 })
+	export const raised = style({ zIndex: '10 !custom' })
 
 	export const clickable = style({ cursor: 'pointer' })
 
@@ -448,7 +448,7 @@ namespace styles {
 
 	export const failed = style({
 		borderLeftColor: 'red.900',
-		borderLeftWidth: '2px',
+		borderLeftWidth: '2',
 	})
 
 	export const barContent = style({
@@ -486,7 +486,7 @@ namespace styles {
 		backgroundColor: 'background.primary',
 		borderColor: 'grayAlpha.200',
 		borderRadius: '8',
-		borderWidth: '1px',
+		borderWidth: '1',
 		display: 'flex',
 		gap: '12',
 		minHeight: '72px !custom',

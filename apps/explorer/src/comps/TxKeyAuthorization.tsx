@@ -304,7 +304,7 @@ namespace styles {
 
 	export const rules = style({
 		borderColor: 'grayAlpha.200',
-		borderLeftWidth: '1px',
+		borderLeftWidth: '1',
 		display: 'flex',
 		flexDirection: 'column',
 		gap: '8',

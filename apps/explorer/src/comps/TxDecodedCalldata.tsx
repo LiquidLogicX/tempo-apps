@@ -209,7 +209,7 @@ namespace styles {
 
 	export const header = style({
 		alignItems: 'center',
-		borderBottomWidth: '1px',
+		borderBottomWidth: '1',
 		borderColor: 'grayAlpha.200',
 		display: 'flex',
 		gap: '8',
@@ -231,7 +231,7 @@ namespace styles {
 	export const argumentList = style({
 		selectors: {
 			'& > :not(:last-child)': {
-				borderBottomWidth: '1px',
+				borderBottomWidth: '1',
 				borderColor: 'grayAlpha.200',
 			},
 		},

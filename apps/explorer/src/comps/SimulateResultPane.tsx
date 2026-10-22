@@ -873,7 +873,7 @@ namespace styles {
 		padding: '0',
 		selectors: {
 			'& > :not(:last-child)': {
-				borderBottomWidth: '1px',
+				borderBottomWidth: '1',
 				borderColor: 'grayAlpha.200',
 				borderStyle: 'solid',
 			},

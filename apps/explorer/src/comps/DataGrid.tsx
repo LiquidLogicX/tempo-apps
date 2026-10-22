@@ -15,7 +15,7 @@ const raised = {
 	'& :is(a, button):not([data-row-link])': {
 		pointerEvents: 'auto',
 		position: 'relative',
-		zIndex: 1,
+		zIndex: '1 !custom',
 	},
 } as const
 

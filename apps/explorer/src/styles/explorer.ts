@@ -20,7 +20,7 @@ export const noScrollbar = style({
 })
 
 export const srOnly = style({
-	borderWidth: '0px',
+	borderWidth: '0 !custom',
 	clipPath: 'inset(50%)',
 	height: '1',
 	margin: '-1px !custom',

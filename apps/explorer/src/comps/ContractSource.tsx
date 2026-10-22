@@ -84,7 +84,7 @@ namespace styles {
 		borderColor: 'grayAlpha.200',
 		borderRadius: '12',
 		borderStyle: 'solid',
-		borderWidth: '1px',
+		borderWidth: '1',
 		display: 'flex',
 		height: 'calc(min(620px, 70svh) + 96px) !custom',
 		justifyContent: 'center',

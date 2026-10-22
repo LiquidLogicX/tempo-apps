@@ -384,7 +384,7 @@ namespace styles {
 	export const pagination = style({
 		alignItems: 'center',
 		borderColor: 'grayAlpha.200',
-		borderTopWidth: '1px',
+		borderTopWidth: '1',
 		display: 'flex',
 		flexWrap: 'wrap',
 		gap: '16',

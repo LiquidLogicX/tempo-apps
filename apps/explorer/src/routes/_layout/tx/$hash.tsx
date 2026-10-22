@@ -1032,7 +1032,7 @@ namespace styles {
 		maxHeight: '360px !custom',
 		overflowY: 'auto',
 		paddingBottom: '8',
-		selectors: { '& a:focus-visible': { outlineOffset: '-2px' } },
+		selectors: { '& a:focus-visible': { outlineOffset: '-2' } },
 	})
 
 	export const balanceAccount = style({
@@ -1044,7 +1044,7 @@ namespace styles {
 
 	export const balanceChanges = style({
 		borderColor: 'grayAlpha.200',
-		borderLeftWidth: '1px',
+		borderLeftWidth: '1',
 		display: 'flex',
 		flexDirection: 'column',
 		gap: '2px !custom',
@@ -1072,7 +1072,7 @@ namespace styles {
 		flexDirection: 'column',
 		selectors: {
 			'& > :not(:last-child)': {
-				borderBottomWidth: '1px',
+				borderBottomWidth: '1',
 				borderColor: 'grayAlpha.200',
 			},
 		},

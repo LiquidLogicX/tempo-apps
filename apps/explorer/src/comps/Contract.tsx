@@ -487,7 +487,7 @@ namespace styles {
 		borderColor: 'grayAlpha.200',
 		borderRadius: '12',
 		borderStyle: 'solid',
-		borderWidth: '1px',
+		borderWidth: '1',
 		overflow: 'hidden',
 	})
 

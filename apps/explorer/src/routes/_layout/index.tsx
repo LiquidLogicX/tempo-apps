@@ -233,7 +233,7 @@ namespace styles {
 		maxWidth: '560px !custom',
 		position: 'relative',
 		width: '100% !custom',
-		zIndex: 20,
+		zIndex: '20 !custom',
 	})
 
 	export const spotlight = style({

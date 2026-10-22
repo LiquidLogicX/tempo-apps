@@ -244,7 +244,7 @@ namespace styles {
 	export const header = style({
 		containerType: 'inline-size',
 		position: 'relative',
-		zIndex: 1,
+		zIndex: '1 !custom',
 	})
 
 	export const bar = style({
@@ -255,7 +255,7 @@ namespace styles {
 		paddingTop: '32',
 		position: 'relative',
 		userSelect: 'none',
-		zIndex: 20,
+		zIndex: '20 !custom',
 		'@container (width >= 800px) and (width < 1239px)': {
 			height: '88px !custom',
 		},
@@ -269,7 +269,7 @@ namespace styles {
 		gap: '12',
 		height: '32',
 		position: 'relative',
-		zIndex: 1,
+		zIndex: '1 !custom',
 	})
 
 	export const homeLink = style({
@@ -289,7 +289,7 @@ namespace styles {
 		display: 'flex',
 		gap: '8',
 		position: 'relative',
-		zIndex: 1,
+		zIndex: '1 !custom',
 		'@media print': { display: 'none' },
 	})
 
@@ -304,7 +304,7 @@ namespace styles {
 		paddingTop: '16',
 		position: 'sticky',
 		top: '0',
-		zIndex: 10,
+		zIndex: '10 !custom',
 		'@container (width >= 800px)': { display: 'none' },
 		'@media print': { display: 'none' },
 	})
@@ -317,7 +317,7 @@ namespace styles {
 		left: '0',
 		position: 'absolute',
 		right: '0',
-		zIndex: 1,
+		zIndex: '1 !custom',
 		'@container (width < 1239px)': { display: 'none' },
 		'@media print': { display: 'none' },
 	})
@@ -337,7 +337,7 @@ namespace styles {
 	export const networkChevron = style({
 		color: 'gray.900',
 		flexShrink: 0,
-		transitionDuration: '100ms',
+		transitionDuration: '100',
 		transitionProperty: 'rotate',
 		transitionTimingFunction: 'in-out',
 		selectors: { '[data-popup-open] &': { rotate: '180deg' } },
@@ -351,7 +351,7 @@ namespace styles {
 			gap: '8',
 			textDecorationLine: 'none',
 			transformOrigin: 'right',
-			transitionDuration: '80ms',
+			transitionDuration: '100',
 			transitionProperty: 'opacity, scale',
 			transitionTimingFunction: 'in-out',
 			typography: 'copy.14',
@@ -360,8 +360,8 @@ namespace styles {
 		defaultVariants: { ready: false },
 		variants: {
 			ready: {
-				true: { opacity: 1, scale: 1 },
-				false: { opacity: 0, scale: 0.97 },
+				true: { opacity: '1 !custom', scale: '1 !custom' },
+				false: { opacity: '0 !custom', scale: 'enter' },
 			},
 		},
 	})

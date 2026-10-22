@@ -785,7 +785,7 @@ namespace styles {
 		base: {
 			minWidth: '0 !custom',
 			overflowWrap: 'anywhere',
-			transitionDuration: '160ms',
+			transitionDuration: '160',
 			transitionProperty: 'opacity',
 		},
 		defaultVariants: { fetching: false },

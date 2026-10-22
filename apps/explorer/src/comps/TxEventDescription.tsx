@@ -388,7 +388,7 @@ namespace styles {
 		maxWidth: '100% !custom',
 		minWidth: '11ch !custom',
 		overflow: 'hidden',
-		selectors: { '& a:focus-visible': { outlineOffset: '-2px' } },
+		selectors: { '& a:focus-visible': { outlineOffset: '-2' } },
 	})
 
 	export const root = style({

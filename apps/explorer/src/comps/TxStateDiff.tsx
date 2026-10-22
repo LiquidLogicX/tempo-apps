@@ -387,10 +387,10 @@ namespace styles {
 
 	export const header = style({
 		alignItems: 'center',
-		borderBottomWidth: '1px',
+		borderBottomWidth: '1',
 		borderColor: 'grayAlpha.200',
 		borderStyle: 'solid',
-		borderTopWidth: '1px',
+		borderTopWidth: '1',
 		display: 'flex',
 		gap: '8',
 		justifyContent: 'space-between',

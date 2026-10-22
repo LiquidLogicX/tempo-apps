@@ -148,13 +148,13 @@ namespace styles {
 		'--contract-tree-pressed-background': vars.color.grayAlpha[200],
 		'--contract-tree-selected-background': vars.color.grayAlpha[100],
 		backgroundColor: 'background.surface',
-		borderBottomWidth: '1px',
+		borderBottomWidth: '1',
 		borderColor: 'grayAlpha.200',
 		flexShrink: 0,
 		minWidth: '0',
 		'@container source (width >= 42rem)': {
-			borderBottomWidth: '0px',
-			borderRightWidth: '1px',
+			borderBottomWidth: '0 !custom',
+			borderRightWidth: '1',
 			height: '100% !custom',
 		},
 	})

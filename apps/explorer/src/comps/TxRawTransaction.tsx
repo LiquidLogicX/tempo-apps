@@ -274,7 +274,7 @@ namespace styles {
 				false: {},
 				true: {
 					borderColor: 'grayAlpha.200',
-					borderTopWidth: '1px',
+					borderTopWidth: '1',
 					paddingTop: '24',
 				},
 			},

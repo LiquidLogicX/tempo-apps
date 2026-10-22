@@ -327,7 +327,7 @@ namespace styles {
 		borderColor: 'grayAlpha.200',
 		borderRadius: '12',
 		borderStyle: 'solid',
-		borderWidth: '1px',
+		borderWidth: '1',
 		containerName: 'source',
 		containerType: 'inline-size',
 		overflow: 'hidden',
@@ -335,7 +335,7 @@ namespace styles {
 
 	export const toolbar = style({
 		alignItems: 'center',
-		borderBottomWidth: '1px',
+		borderBottomWidth: '1',
 		borderColor: 'grayAlpha.200',
 		display: 'flex',
 		gap: '8',
@@ -393,7 +393,7 @@ namespace styles {
 
 	export const footer = style({
 		borderColor: 'grayAlpha.200',
-		borderTopWidth: '1px',
+		borderTopWidth: '1',
 		color: 'gray.900',
 		display: 'flex',
 		flexWrap: 'wrap',

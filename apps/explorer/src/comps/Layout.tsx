@@ -86,7 +86,7 @@ namespace styles {
 		position: 'fixed',
 		top: '12',
 		typography: 'copy.14',
-		zIndex: 50,
+		zIndex: '50 !custom',
 		':focus': {
 			clipPath: 'none',
 			height: 'auto !custom',
@@ -96,7 +96,7 @@ namespace styles {
 		},
 	})
 
-	export const header = style({ position: 'relative', zIndex: 4 })
+	export const header = style({ position: 'relative', zIndex: '4 !custom' })
 
 	export const printHidden = style({ '@media print': { display: 'none' } })
 
@@ -109,7 +109,7 @@ namespace styles {
 		outlineStyle: 'none',
 		position: 'relative',
 		width: '100% !custom',
-		zIndex: 1,
+		zIndex: '1 !custom',
 		'@media print': { display: 'block', flex: 'none' },
 	})
 
@@ -117,7 +117,7 @@ namespace styles {
 		marginTop: '24',
 		position: 'relative',
 		width: '100% !custom',
-		zIndex: 2,
+		zIndex: '2 !custom',
 	})
 
 	export const footerLanding = style({

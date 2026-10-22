@@ -1337,13 +1337,13 @@ namespace styles {
 			display: 'flex',
 			flexDirection: 'column',
 			minWidth: '0 !custom',
-			transitionDuration: '150ms',
+			transitionDuration: '150',
 			transitionProperty: 'opacity',
 			transitionTimingFunction: 'in-out',
 		},
 		defaultVariants: { stale: false },
 		variants: {
-			stale: { false: {}, true: { opacity: 0.6 } },
+			stale: { false: {}, true: { opacity: '0.6 !custom' } },
 		},
 	})
 

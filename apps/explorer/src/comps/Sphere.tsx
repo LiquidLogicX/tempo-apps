@@ -116,7 +116,7 @@ namespace styles {
 		pointerEvents: 'none',
 		position: 'fixed',
 		width: '100% !custom',
-		zIndex: 0,
+		zIndex: '0 !custom',
 		'@media (width >= 640px)': { display: 'block' },
 		'@media print': { display: 'none' },
 		'@media (height <= 760px)': { display: 'none' },
