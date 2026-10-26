@@ -25,11 +25,7 @@ import { OG_BASE_URL } from '#lib/og'
 import { posthogBootScript } from '#lib/posthog'
 import { ProgressLine } from '#comps/ProgressLine'
 import { defaultThemeMode, themeBootScript } from '#lib/theme'
-import {
-	getTempoChain,
-	getWagmiConfig,
-	getWagmiStateSSR,
-} from '#wagmi.config.ts'
+import { getTempoChain, getWagmiConfig, getWagmiState } from '#wagmi.config.ts'
 import geistMono from '@tempoxyz/ds/fonts/GeistMono-Variable.woff2?url'
 import inter from '@tempoxyz/ds/fonts/Inter-Variable.woff2?url'
 
@@ -215,7 +211,7 @@ export const Route = createRootRouteWithContext<{
 			<ErrorBoundary {...props} />
 		</RootDocument>
 	),
-	loader: () => getWagmiStateSSR(),
+	loader: () => getWagmiState(),
 	// An unmatched URL renders here, outside `_layout`, so it brings the layout.
 	notFoundComponent: () => (
 		<Layout>
