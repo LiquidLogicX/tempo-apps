@@ -74,6 +74,7 @@ import {
 	type PrestateDiff,
 	traceQueryOptions,
 } from '#lib/queries/trace'
+import { expiringNonceKey, getNonceKey } from '#lib/domain/nonce'
 import { zHash } from '#lib/zod'
 import { fetchTransactionActivities } from '#lib/server/transaction-activities'
 import ChevronDownIcon from '~icons/lucide/chevron-down'
@@ -425,12 +426,9 @@ function OverviewSection(props: {
 	const baseFee = block.baseFeePerGas
 	const maxFee = transaction.maxFeePerGas
 	const maxPriorityFee = transaction.maxPriorityFeePerGas
-	const nonce = transaction.nonce
-	const nonceKey =
-		'nonceKey' in transaction
-			? (transaction.nonceKey as bigint | undefined)
-			: undefined
-	const isExpiringNonce = nonceKey === 2n ** 256n - 1n
+	const nonce = transaction.nonce.toString()
+	const nonceKey = getNonceKey(transaction)
+	const isExpiringNonce = nonceKey === expiringNonceKey
 	const positionInBlock = receipt.transactionIndex
 	const input = transaction.input
 	const feePayer =
